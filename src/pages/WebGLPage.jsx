@@ -4,6 +4,7 @@ import { DEFAULT_STRIKE_TIMING, MAX_TRUNK_COUNT } from "../webgl/thunderConfig.j
 import "./WebGLPage.css";
 
 export default function WebGLPage() {
+  const [boltSource, setBoltSource] = useState(DEFAULT_THUNDER_PARAMS.boltSource);
   const [thickness, setThickness] = useState(DEFAULT_THUNDER_PARAMS.thickness);
   const [branchDensity, setBranchDensity] = useState(DEFAULT_THUNDER_PARAMS.branchDensity);
   const [branches, setBranches] = useState(DEFAULT_THUNDER_PARAMS.branches);
@@ -25,11 +26,14 @@ export default function WebGLPage() {
     setStrikeNonce((n) => n + 1);
   }, []);
 
+  const isArt = boltSource === "art";
+
   const params = {
+    boltSource,
     thickness,
     branchDensity,
     branches,
-    trunkCount,
+    trunkCount: isArt ? 3 : trunkCount,
     seed,
     strikeTiming: {
       durationMs,
@@ -45,8 +49,11 @@ export default function WebGLPage() {
       <header className="webgl-page__header">
         <h1 className="webgl-page__title">WebGL thunder</h1>
         <p className="webgl-page__subtitle">
-          Bolts grow from the center toward the edges. Adjust bolt count (up to {MAX_TRUNK_COUNT})
-          and timing — defaults live in <code>src/webgl/thunderConfig.js</code>.
+          {isArt
+            ? "Paths traced from plasma.svg — 3 center clusters, branches outward. Colors match the SVG filament."
+            : `Procedural bolts (1–${MAX_TRUNK_COUNT}). Defaults in `}
+          {!isArt && <code>src/webgl/thunderConfig.js</code>}
+          {!isArt && "."}
         </p>
         <a className="webgl-page__link" href="/">
           ← Canvas route
@@ -65,9 +72,21 @@ export default function WebGLPage() {
         </button>
 
         <label className="webgl-controls__row">
+          <span className="webgl-controls__label">Bolt source</span>
+          <select
+            className="webgl-controls__select"
+            value={boltSource}
+            onChange={(e) => setBoltSource(e.target.value)}
+          >
+            <option value="art">plasma.svg (3 clusters)</option>
+            <option value="procedural">Procedural</option>
+          </select>
+        </label>
+
+        <label className="webgl-controls__row">
           <span className="webgl-controls__label">
             Bolt count
-            <output className="webgl-controls__value">{trunkCount}</output>
+            <output className="webgl-controls__value">{isArt ? 3 : trunkCount}</output>
           </span>
           <input
             type="range"
@@ -75,6 +94,7 @@ export default function WebGLPage() {
             max={MAX_TRUNK_COUNT}
             step="1"
             value={trunkCount}
+            disabled={isArt}
             onChange={(e) => setTrunkCount(Number(e.target.value))}
           />
         </label>
@@ -105,7 +125,7 @@ export default function WebGLPage() {
             max="1"
             step="0.05"
             value={branchDensity}
-            disabled={!branches}
+            disabled={!branches || isArt}
             onChange={(e) => setBranchDensity(Number(e.target.value))}
           />
         </label>
@@ -114,12 +134,18 @@ export default function WebGLPage() {
           <input
             type="checkbox"
             checked={branches}
+            disabled={isArt}
             onChange={(e) => setBranches(e.target.checked)}
           />
           Branches
         </label>
 
-        <button type="button" className="webgl-controls__btn" onClick={reshuffle}>
+        <button
+          type="button"
+          className="webgl-controls__btn"
+          onClick={reshuffle}
+          disabled={isArt}
+        >
           Reshuffle branches
         </button>
 

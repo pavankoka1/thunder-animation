@@ -45,6 +45,8 @@ uniform float u_outerAlpha;
 uniform float u_glowAlpha;
 uniform float u_coreAlpha;
 uniform float u_layerOpacity;
+uniform sampler2D u_plasmaTex;
+uniform float u_plasmaBlend;
 
 out vec4 out_FragColor;
 
@@ -148,7 +150,16 @@ void main() {
   bolt += vec3(${THUNDER_COLORS.glowCore.join(", ")}) * core;
   bolt *= u_layerOpacity;
 
-  vec3 col = screenBlend(bg, bolt);
+  vec3 sdfCol = screenBlend(bg, bolt);
+
+  // Sample plasma texture (canvas 2D y=0 is top; WebGL uv.y=0 is bottom → flip)
+  vec2 plasmaUV = vec2(uv.x, 1.0 - uv.y);
+  vec4 plasma = texture(u_plasmaTex, plasmaUV);
+  // Standard source-over: mix bg with plasma RGB weighted by plasma alpha
+  // The plasma raster has the SVG group opacity (0.6) and cluster brightness baked in
+  vec3 plasmaCol = mix(bg, plasma.rgb, plasma.a);
+
+  vec3 col = mix(sdfCol, plasmaCol, u_plasmaBlend);
   out_FragColor = vec4(min(col, vec3(1.0)), 1.0);
 }
 `;
@@ -354,7 +365,7 @@ function easeOutCubic(t) {
 
 /**
  * @param {HTMLCanvasElement} canvas
- * @param {{ thickness?: number, branchDensity?: number, branches?: boolean, seed?: number }} params
+ * @param {import("./thunderConfig.js").DEFAULT_THUNDER_CONFIG & { tree?: object }} params
  */
 export function createThunderRenderer(canvas, params = {}) {
   const gl = canvas.getContext("webgl2", {
@@ -374,13 +385,33 @@ export function createThunderRenderer(canvas, params = {}) {
 
   let currentParams = resolveThunderParams(params);
 
-  let tree = generateBoltTree(width, height, currentParams);
+  let tree =
+    params.tree ??
+    (currentParams.boltSource === "art"
+      ? { paths: [], pointCounts: [], pathMeta: [] }
+      : generateBoltTree(width, height, currentParams));
   const { pointTex, countTex, revealTex } = uploadPathTextures(
     gl,
     tree,
     width,
     height
   );
+
+  // Plasma texture slot (TEXTURE3) — starts as 1×1 transparent; replaced via setPlasmaTexture()
+  let plasmaTex = (() => {
+    const t = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0,
+      gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0])
+    );
+    return t;
+  })();
 
   const program = createProgram(gl, VERT, FRAG);
   gl.useProgram(program);
@@ -413,6 +444,8 @@ export function createThunderRenderer(canvas, params = {}) {
     uGlowAlpha: gl.getUniformLocation(program, "u_glowAlpha"),
     uCoreAlpha: gl.getUniformLocation(program, "u_coreAlpha"),
     uLayerOpacity: gl.getUniformLocation(program, "u_layerOpacity"),
+    uPlasmaTex: gl.getUniformLocation(program, "u_plasmaTex"),
+    uPlasmaBlend: gl.getUniformLocation(program, "u_plasmaBlend"),
   };
 
   const style = PLASMA_BOLT_STYLE;
@@ -420,6 +453,10 @@ export function createThunderRenderer(canvas, params = {}) {
   let strikeActive = false;
   let strikeProgress = 1;
   let strikeAnim = null;
+
+  let plasmaBlend = currentParams.boltSource === "art" ? 1 : 0;
+  let blendAnim = null;
+  const BLEND_DURATION_MS = 700;
 
   function strikeDurationMs() {
     return currentParams.strikeTiming?.durationMs ?? DEFAULT_STRIKE_TIMING.durationMs;
@@ -430,6 +467,8 @@ export function createThunderRenderer(canvas, params = {}) {
     gl.uniform1i(uniforms.uPointTex, 0);
     gl.uniform1i(uniforms.uCountTex, 1);
     gl.uniform1i(uniforms.uRevealTex, 2);
+    gl.uniform1i(uniforms.uPlasmaTex, 3);
+    gl.uniform1f(uniforms.uPlasmaBlend, plasmaBlend);
     gl.uniform2f(uniforms.uResolution, width, height);
     gl.uniform1f(uniforms.uOuterAlpha, style.outerAlpha);
     gl.uniform1f(uniforms.uGlowAlpha, style.glowAlpha);
@@ -465,17 +504,33 @@ export function createThunderRenderer(canvas, params = {}) {
         strikeProgress = 1;
         strikeAnim = null;
         strikeActive = false;
+        // After the bolt finishes travelling, fade in the plasma texture
+        if (currentParams.boltSource === "art") {
+          blendAnim = { start: now, duration: BLEND_DURATION_MS };
+        }
       }
       syncRevealUniforms();
     }
 
+    if (blendAnim) {
+      const bt = Math.min(1, (now - blendAnim.start) / blendAnim.duration);
+      plasmaBlend = easeOutCubic(bt);
+      if (bt >= 1) {
+        plasmaBlend = 1;
+        blendAnim = null;
+      }
+    }
+
     gl.useProgram(program);
+    gl.uniform1f(uniforms.uPlasmaBlend, plasmaBlend);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, pointTex);
     gl.activeTexture(gl.TEXTURE1);
     gl.bindTexture(gl.TEXTURE_2D, countTex);
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, revealTex);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, plasmaTex);
     gl.uniform1f(uniforms.uTime, (now - t0) * 0.001);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -490,15 +545,15 @@ export function createThunderRenderer(canvas, params = {}) {
       currentParams = resolveThunderParams({ ...currentParams, ...next });
 
       const regenGeometry =
-        currentParams.branches !== prev.branches ||
-        currentParams.branchDensity !== prev.branchDensity ||
-        currentParams.seed !== prev.seed ||
-        currentParams.trunkCount !== prev.trunkCount;
+        currentParams.boltSource !== "art" &&
+        (currentParams.branches !== prev.branches ||
+          currentParams.branchDensity !== prev.branchDensity ||
+          currentParams.seed !== prev.seed ||
+          currentParams.trunkCount !== prev.trunkCount);
 
-      const regenTiming = strikeTimingChanged(
-        currentParams.strikeTiming,
-        prev.strikeTiming
-      );
+      const regenTiming =
+        currentParams.boltSource !== "art" &&
+        strikeTimingChanged(currentParams.strikeTiming, prev.strikeTiming);
 
       if (regenGeometry) {
         tree = generateBoltTree(width, height, currentParams);
@@ -523,6 +578,7 @@ export function createThunderRenderer(canvas, params = {}) {
       }
     },
     reshuffle() {
+      if (currentParams.boltSource === "art") return;
       currentParams.seed = (currentParams.seed + 1) >>> 0;
       tree = generateBoltTree(width, height, currentParams);
       gl.useProgram(program);
@@ -536,9 +592,32 @@ export function createThunderRenderer(canvas, params = {}) {
         syncRevealUniforms();
       }
     },
+    setArtTree(artTree) {
+      tree = artTree;
+      gl.useProgram(program);
+      gl.uniform1i(
+        uniforms.uNumPaths,
+        uploadTree(gl, { pointTex, countTex }, tree, width, height)
+      );
+      if (!strikeAnim) {
+        strikeActive = false;
+        strikeProgress = 1;
+        syncRevealUniforms();
+      }
+    },
+    setPlasmaTexture(canvasElement) {
+      gl.activeTexture(gl.TEXTURE3);
+      gl.bindTexture(gl.TEXTURE_2D, plasmaTex);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvasElement);
+    },
     playStrike(durationMs = strikeDurationMs()) {
       strikeActive = true;
       strikeProgress = 0;
+      // Reset blend so the bolt glow is visible during travel
+      plasmaBlend = 0;
+      blendAnim = null;
       syncRevealUniforms();
       strikeAnim = {
         start: performance.now(),
@@ -551,6 +630,7 @@ export function createThunderRenderer(canvas, params = {}) {
       gl.deleteTexture(pointTex);
       gl.deleteTexture(countTex);
       gl.deleteTexture(revealTex);
+      gl.deleteTexture(plasmaTex);
       gl.deleteBuffer(quad);
       gl.deleteProgram(program);
     },
