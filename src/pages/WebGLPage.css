@@ -154,19 +154,22 @@
 
 .thunder-webgl {
   position: relative;
-  width: 500px;
-  height: 500px;
+  /* Match plasma.svg viewBox 84×68 at 4× scale = 336×272 */
+  width: 336px;
+  height: 272px;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid #2a6a9a;
-  box-shadow: 0 8px 32px rgba(0, 100, 180, 0.25);
+  border: 2px solid rgba(100, 180, 255, 0.5);
+  box-shadow:
+    0 8px 32px rgba(0, 100, 180, 0.35),
+    0 0 0 1px rgba(54, 235, 242, 0.2);
   background: linear-gradient(180deg, #36ebf2 0%, #00a2ff 100%);
 }
 
 .thunder-webgl__canvas {
   display: block;
-  width: 500px;
-  height: 500px;
+  width: 336px;
+  height: 272px;
 }
 
 .thunder-webgl__error {

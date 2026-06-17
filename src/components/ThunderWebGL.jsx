@@ -3,7 +3,9 @@ import { createThunderRenderer } from "../webgl/thunderRenderer.js";
 import { DEFAULT_THUNDER_CONFIG } from "../webgl/thunderConfig.js";
 import { loadArtBoltTree } from "../webgl/loadArtBoltTree.js";
 
-const SIZE = 500;
+/** Match plasma.svg viewBox (84×68) at 4× — identical to the canvas route. */
+export const BETSPOT_W = 336;
+export const BETSPOT_H = 272;
 
 export const DEFAULT_THUNDER_PARAMS = DEFAULT_THUNDER_CONFIG;
 
@@ -28,7 +30,7 @@ export default function ThunderWebGL({ params = DEFAULT_THUNDER_PARAMS, strikeNo
         let plasmaCanvas;
 
         if (params.boltSource === "art") {
-          ({ boltTree, plasmaCanvas } = await loadArtBoltTree(SIZE, SIZE));
+          ({ boltTree, plasmaCanvas } = await loadArtBoltTree(BETSPOT_W, BETSPOT_H));
           if (cancelled) return;
         }
 
@@ -91,11 +93,11 @@ export default function ThunderWebGL({ params = DEFAULT_THUNDER_PARAMS, strikeNo
       <canvas
         ref={canvasRef}
         className="thunder-webgl__canvas"
-        width={SIZE}
-        height={SIZE}
+        width={BETSPOT_W}
+        height={BETSPOT_H}
         aria-label="WebGL thunder bolt"
       />
-      {loading && <p className="thunder-webgl__loading">Loading plasma paths…</p>}
+      {loading && <p className="thunder-webgl__loading">Loading plasma…</p>}
       {error && <p className="thunder-webgl__error">{error}</p>}
     </div>
   );

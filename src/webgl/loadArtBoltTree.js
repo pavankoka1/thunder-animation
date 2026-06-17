@@ -12,7 +12,9 @@ import { artPathTreeToBoltTree, rasterizePlasmaForWebGL } from "./artBoltTree.js
  */
 export async function loadArtBoltTree(canvasWidth, canvasHeight, plasmaUrl = "/plasma.svg") {
   const { pathTree, plasmaLayer } = await loadPlasmaAssets(plasmaUrl);
-  const boltTree = artPathTreeToBoltTree(pathTree, canvasWidth, canvasHeight);
-  const plasmaCanvas = rasterizePlasmaForWebGL(plasmaLayer, canvasWidth, canvasHeight);
+  // padding=0: plasma and paths fill the full canvas — the betspot border/clip
+  // is handled by CSS on the outer container, not inside the WebGL canvas.
+  const boltTree = artPathTreeToBoltTree(pathTree, canvasWidth, canvasHeight, 0);
+  const plasmaCanvas = rasterizePlasmaForWebGL(plasmaLayer, canvasWidth, canvasHeight, 0);
   return { boltTree, plasmaCanvas };
 }

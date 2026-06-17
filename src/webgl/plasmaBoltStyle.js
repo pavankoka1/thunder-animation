@@ -18,6 +18,11 @@ export const PLASMA_BOLT_STYLE = {
   coreFalloff: 0.32,
   glowSigma: 0.48,
   outerSigma: 0.72,
+  /**
+   * How far (viewBox units) around each revealed bolt segment the plasma
+   * texture fills in.  8 vb-units × scale(4) = 32 px on the 336-wide canvas.
+   */
+  revealRadius: 8.0,
 };
 
 export const SVG_REF_SIZE = 84;

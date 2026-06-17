@@ -46,7 +46,10 @@ uniform float u_glowAlpha;
 uniform float u_coreAlpha;
 uniform float u_layerOpacity;
 uniform sampler2D u_plasmaTex;
-uniform float u_plasmaBlend;
+/** 0 = idle (no fill), 0–1 during animation fill phase, 1 = fully settled */
+uniform float u_fillBlend;
+/** Distance (canvas pixels) from bolt path at which plasma texture is revealed */
+uniform float u_revealRadius;
 
 out vec4 out_FragColor;
 
@@ -144,22 +147,35 @@ void main() {
   float glow = exp(-(d * d) / (2.0 * u_glowSigma * u_glowSigma)) * u_glowAlpha;
   float outer = exp(-(d * d) / (2.0 * u_outerSigma * u_outerSigma)) * u_outerAlpha;
 
+  // ── Plasma texture reveal ──────────────────────────────────────────────────
+  // sdfActive: during strike the full SDF is active; at rest it's gated by
+  // u_fillBlend so that idle (fillBlend=0) shows nothing.
+  float sdfActive = u_strikeActive > 0.5 ? 1.0 : u_fillBlend;
+
+  // Soft halo around the nearest revealed bolt segment
+  float sdfFill = clamp(1.0 - d / max(u_revealRadius, 0.001), 0.0, 1.0);
+  sdfFill = pow(sdfFill, 0.55) * sdfActive;
+
+  // Union of the SDF halo and the global fill progress
+  float reveal = max(sdfFill, u_fillBlend);
+
+  // Sample plasma texture (canvas y=0 is top; WebGL uv.y=0 is bottom — flip)
+  vec4 plasma = texture(u_plasmaTex, vec2(uv.x, 1.0 - uv.y));
+  // Source-over: mix background with plasma using baked alpha
+  vec3 plasmaCol = mix(bg, plasma.rgb, plasma.a * reveal);
+
+  // ── Bolt glow ──────────────────────────────────────────────────────────────
   vec3 bolt = vec3(0.0);
   bolt += vec3(${THUNDER_COLORS.glowOuter.join(", ")}) * outer;
   bolt += vec3(${THUNDER_COLORS.glowMid.join(", ")}) * glow;
   bolt += vec3(${THUNDER_COLORS.glowCore.join(", ")}) * core;
-  bolt *= u_layerOpacity;
 
-  vec3 sdfCol = screenBlend(bg, bolt);
+  // Glow visible during animation and in the settled state; hidden when idle
+  float glowScale = max(u_strikeActive > 0.5 ? 1.0 : 0.0, u_fillBlend);
+  bolt *= u_layerOpacity * glowScale;
 
-  // Sample plasma texture (canvas 2D y=0 is top; WebGL uv.y=0 is bottom → flip)
-  vec2 plasmaUV = vec2(uv.x, 1.0 - uv.y);
-  vec4 plasma = texture(u_plasmaTex, plasmaUV);
-  // Standard source-over: mix bg with plasma RGB weighted by plasma alpha
-  // The plasma raster has the SVG group opacity (0.6) and cluster brightness baked in
-  vec3 plasmaCol = mix(bg, plasma.rgb, plasma.a);
-
-  vec3 col = mix(sdfCol, plasmaCol, u_plasmaBlend);
+  // ── Composite ─────────────────────────────────────────────────────────────
+  vec3 col = screenBlend(plasmaCol, bolt);
   out_FragColor = vec4(min(col, vec3(1.0)), 1.0);
 }
 `;
@@ -445,7 +461,8 @@ export function createThunderRenderer(canvas, params = {}) {
     uCoreAlpha: gl.getUniformLocation(program, "u_coreAlpha"),
     uLayerOpacity: gl.getUniformLocation(program, "u_layerOpacity"),
     uPlasmaTex: gl.getUniformLocation(program, "u_plasmaTex"),
-    uPlasmaBlend: gl.getUniformLocation(program, "u_plasmaBlend"),
+    uFillBlend: gl.getUniformLocation(program, "u_fillBlend"),
+    uRevealRadius: gl.getUniformLocation(program, "u_revealRadius"),
   };
 
   const style = PLASMA_BOLT_STYLE;
@@ -453,10 +470,8 @@ export function createThunderRenderer(canvas, params = {}) {
   let strikeActive = false;
   let strikeProgress = 1;
   let strikeAnim = null;
-
-  let plasmaBlend = currentParams.boltSource === "art" ? 1 : 0;
-  let blendAnim = null;
-  const BLEND_DURATION_MS = 700;
+  /** 0 = idle (before first strike), 0–1 during fill phase, 1 = fully settled */
+  let fillBlend = 0;
 
   function strikeDurationMs() {
     return currentParams.strikeTiming?.durationMs ?? DEFAULT_STRIKE_TIMING.durationMs;
@@ -468,7 +483,8 @@ export function createThunderRenderer(canvas, params = {}) {
     gl.uniform1i(uniforms.uCountTex, 1);
     gl.uniform1i(uniforms.uRevealTex, 2);
     gl.uniform1i(uniforms.uPlasmaTex, 3);
-    gl.uniform1f(uniforms.uPlasmaBlend, plasmaBlend);
+    gl.uniform1f(uniforms.uFillBlend, fillBlend);
+    gl.uniform1f(uniforms.uRevealRadius, style.revealRadius * (width / SVG_REF_SIZE));
     gl.uniform2f(uniforms.uResolution, width, height);
     gl.uniform1f(uniforms.uOuterAlpha, style.outerAlpha);
     gl.uniform1f(uniforms.uGlowAlpha, style.glowAlpha);
@@ -500,29 +516,24 @@ export function createThunderRenderer(canvas, params = {}) {
     if (strikeAnim) {
       const t = (now - strikeAnim.start) / strikeAnim.duration;
       strikeProgress = easeOutCubic(t);
+
+      // Fill the betspot with plasma texture starting once bolts have reached
+      // their endpoints (mirrors canvas betspotFillBlend timing).
+      const fillStart = currentParams.strikeTiming?.trunkFinish ?? 0.72;
+      const rawFillT = Math.max(0, (strikeProgress - fillStart) / Math.max(1 - fillStart, 0.01));
+      fillBlend = 1 - (1 - Math.min(rawFillT, 1)) ** 1.8;
+
       if (t >= 1) {
         strikeProgress = 1;
+        fillBlend = 1;
         strikeAnim = null;
         strikeActive = false;
-        // After the bolt finishes travelling, fade in the plasma texture
-        if (currentParams.boltSource === "art") {
-          blendAnim = { start: now, duration: BLEND_DURATION_MS };
-        }
       }
       syncRevealUniforms();
     }
 
-    if (blendAnim) {
-      const bt = Math.min(1, (now - blendAnim.start) / blendAnim.duration);
-      plasmaBlend = easeOutCubic(bt);
-      if (bt >= 1) {
-        plasmaBlend = 1;
-        blendAnim = null;
-      }
-    }
-
     gl.useProgram(program);
-    gl.uniform1f(uniforms.uPlasmaBlend, plasmaBlend);
+    gl.uniform1f(uniforms.uFillBlend, fillBlend);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, pointTex);
     gl.activeTexture(gl.TEXTURE1);
@@ -615,9 +626,7 @@ export function createThunderRenderer(canvas, params = {}) {
     playStrike(durationMs = strikeDurationMs()) {
       strikeActive = true;
       strikeProgress = 0;
-      // Reset blend so the bolt glow is visible during travel
-      plasmaBlend = 0;
-      blendAnim = null;
+      fillBlend = 0;  // start from blank — fill grows during animation
       syncRevealUniforms();
       strikeAnim = {
         start: performance.now(),

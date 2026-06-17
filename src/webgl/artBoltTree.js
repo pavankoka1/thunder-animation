@@ -17,8 +17,8 @@ import { MAX_PATHS, MAX_POINTS_PER_PATH } from "./generateBoltPath.js";
  * @param {number} canvasHeight
  * @returns {HTMLCanvasElement}
  */
-export function rasterizePlasmaForWebGL(plasmaLayer, canvasWidth, canvasHeight) {
-  const map = createArtCoordinateMap(canvasWidth, canvasHeight);
+export function rasterizePlasmaForWebGL(plasmaLayer, canvasWidth, canvasHeight, padding = 18) {
+  const map = createArtCoordinateMap(canvasWidth, canvasHeight, padding);
   const svgW = SVG_FRAME.width * map.scale;
   const svgH = SVG_FRAME.height * map.scale;
 
@@ -90,8 +90,8 @@ function makePathMetaFromSegment(segment) {
  * @param {number} canvasWidth
  * @param {number} canvasHeight
  */
-export function artPathTreeToBoltTree(pathTree, canvasWidth, canvasHeight) {
-  const map = createArtCoordinateMap(canvasWidth, canvasHeight);
+export function artPathTreeToBoltTree(pathTree, canvasWidth, canvasHeight, padding = 18) {
+  const map = createArtCoordinateMap(canvasWidth, canvasHeight, padding);
   const segments = [...(pathTree?.segments ?? [])].sort((a, b) => a.depth - b.depth);
 
   if (!segments.length) {
