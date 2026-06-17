@@ -2,18 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import { createThunderRenderer } from "../webgl/thunderRenderer.js";
 import { DEFAULT_THUNDER_CONFIG } from "../webgl/thunderConfig.js";
 import { loadArtBoltTree } from "../webgl/loadArtBoltTree.js";
+import { RENDER_SCALE, SVG_FRAME, SVG_PATHS } from "../canvas/svgRenderer.js";
 
 /** Match plasma.svg viewBox (84×68) at 4× — identical to the canvas route. */
-export const BETSPOT_W = 336;
-export const BETSPOT_H = 272;
+export const BETSPOT_W = SVG_FRAME.width * RENDER_SCALE;
+export const BETSPOT_H = SVG_FRAME.height * RENDER_SCALE;
 
 export const DEFAULT_THUNDER_PARAMS = DEFAULT_THUNDER_CONFIG;
 
-export default function ThunderWebGL({ params = DEFAULT_THUNDER_PARAMS, strikeNonce = 0 }) {
+export default function ThunderWebGL({
+  params = DEFAULT_THUNDER_PARAMS,
+  strikeNonce = 0,
+  showPatternNonce = 0,
+  clearNonce = 0,
+}) {
   const canvasRef = useRef(null);
   const rendererRef = useRef(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(params.boltSource === "art");
+
+  const appearance = params.appearance ?? DEFAULT_THUNDER_CONFIG.appearance;
+  const showFrame = appearance.showFrame !== false;
+  const showOverlay = appearance.showOverlay !== false;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -27,10 +37,15 @@ export default function ThunderWebGL({ params = DEFAULT_THUNDER_PARAMS, strikeNo
 
       try {
         let boltTree;
-        let plasmaCanvas;
+        let plasmaLayer;
+        let pathTree;
+        let frameImage;
 
         if (params.boltSource === "art") {
-          ({ boltTree, plasmaCanvas } = await loadArtBoltTree(BETSPOT_W, BETSPOT_H));
+          ({ boltTree, plasmaLayer, pathTree, frameImage } = await loadArtBoltTree(
+            BETSPOT_W,
+            BETSPOT_H
+          ));
           if (cancelled) return;
         }
 
@@ -41,8 +56,8 @@ export default function ThunderWebGL({ params = DEFAULT_THUNDER_PARAMS, strikeNo
         });
         rendererRef.current.setParams(params);
 
-        if (plasmaCanvas) {
-          rendererRef.current.setPlasmaTexture(plasmaCanvas);
+        if (plasmaLayer && pathTree) {
+          rendererRef.current.setArtAssets({ plasmaLayer, pathTree, frameImage });
         }
 
         setLoading(false);
@@ -75,6 +90,10 @@ export default function ThunderWebGL({ params = DEFAULT_THUNDER_PARAMS, strikeNo
     params.branches,
     params.seed,
     params.trunkCount,
+    params.appearance?.bgTop,
+    params.appearance?.bgBottom,
+    params.appearance?.showFrame,
+    params.appearance?.showOverlay,
     params.strikeTiming?.durationMs,
     params.strikeTiming?.trunkFinish,
     params.strikeTiming?.trunkStagger,
@@ -88,17 +107,63 @@ export default function ThunderWebGL({ params = DEFAULT_THUNDER_PARAMS, strikeNo
     }
   }, [strikeNonce, loading]);
 
+  useEffect(() => {
+    if (showPatternNonce > 0 && !loading) {
+      rendererRef.current?.showPattern();
+    }
+  }, [showPatternNonce, loading]);
+
+  useEffect(() => {
+    if (clearNonce > 0 && !loading) {
+      rendererRef.current?.clearPattern();
+    }
+  }, [clearNonce, loading]);
+
+  const isArt = params.boltSource === "art";
+
   return (
-    <div className="thunder-webgl">
-      <canvas
-        ref={canvasRef}
-        className="thunder-webgl__canvas"
-        width={BETSPOT_W}
-        height={BETSPOT_H}
-        aria-label="WebGL thunder bolt"
-      />
-      {loading && <p className="thunder-webgl__loading">Loading plasma…</p>}
-      {error && <p className="thunder-webgl__error">{error}</p>}
+    <div
+      className="thunder-webgl thunder-webgl-stage"
+      style={{ width: BETSPOT_W, height: BETSPOT_H }}
+      aria-label="WebGL betspot"
+    >
+      {!isArt && showFrame ? (
+        <div
+          className="thunder-webgl-stage__bg"
+          style={{ backgroundImage: `url(${SVG_PATHS.frame})` }}
+          aria-hidden
+        />
+      ) : !isArt ? (
+        <div
+          className="thunder-webgl-stage__bg"
+          style={{
+            background: `linear-gradient(180deg, ${appearance.bgTop} 0%, ${appearance.bgBottom} 100%)`,
+          }}
+          aria-hidden
+        />
+      ) : null}
+
+      <div className="thunder-webgl-stage__canvas-wrap">
+        <canvas
+          ref={canvasRef}
+          className={`thunder-webgl-stage__canvas${isArt ? " thunder-webgl-stage__canvas_baked" : ""}`}
+          width={BETSPOT_W}
+          height={BETSPOT_H}
+        />
+        {loading && <p className="thunder-webgl__loading">Loading plasma…</p>}
+        {error && <p className="thunder-webgl__error">{error}</p>}
+      </div>
+
+      {showOverlay && (
+        <img
+          src={SVG_PATHS.overlay}
+          alt=""
+          className="thunder-webgl-stage__overlay"
+          width={BETSPOT_W}
+          height={BETSPOT_H}
+          draggable={false}
+        />
+      )}
     </div>
   );
 }

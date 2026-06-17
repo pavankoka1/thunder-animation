@@ -1,6 +1,10 @@
 import { useCallback, useState } from "react";
 import ThunderWebGL, { DEFAULT_THUNDER_PARAMS } from "../components/ThunderWebGL.jsx";
-import { DEFAULT_STRIKE_TIMING, MAX_TRUNK_COUNT } from "../webgl/thunderConfig.js";
+import {
+  DEFAULT_BETSPOT_APPEARANCE,
+  DEFAULT_STRIKE_TIMING,
+  MAX_TRUNK_COUNT,
+} from "../webgl/thunderConfig.js";
 import "./WebGLPage.css";
 
 export default function WebGLPage() {
@@ -11,6 +15,13 @@ export default function WebGLPage() {
   const [trunkCount, setTrunkCount] = useState(DEFAULT_THUNDER_PARAMS.trunkCount);
   const [seed, setSeed] = useState(42);
   const [strikeNonce, setStrikeNonce] = useState(0);
+  const [showPatternNonce, setShowPatternNonce] = useState(0);
+  const [clearNonce, setClearNonce] = useState(0);
+
+  const [bgTop, setBgTop] = useState(DEFAULT_BETSPOT_APPEARANCE.bgTop);
+  const [bgBottom, setBgBottom] = useState(DEFAULT_BETSPOT_APPEARANCE.bgBottom);
+  const [showOverlay, setShowOverlay] = useState(DEFAULT_BETSPOT_APPEARANCE.showOverlay);
+  const [showFrame, setShowFrame] = useState(DEFAULT_BETSPOT_APPEARANCE.showFrame);
 
   const [durationMs, setDurationMs] = useState(DEFAULT_STRIKE_TIMING.durationMs);
   const [trunkFinish, setTrunkFinish] = useState(DEFAULT_STRIKE_TIMING.trunkFinish);
@@ -26,6 +37,14 @@ export default function WebGLPage() {
     setStrikeNonce((n) => n + 1);
   }, []);
 
+  const showPattern = useCallback(() => {
+    setShowPatternNonce((n) => n + 1);
+  }, []);
+
+  const clearPattern = useCallback(() => {
+    setClearNonce((n) => n + 1);
+  }, []);
+
   const isArt = boltSource === "art";
 
   const params = {
@@ -35,6 +54,7 @@ export default function WebGLPage() {
     branches,
     trunkCount: isArt ? 3 : trunkCount,
     seed,
+    appearance: { bgTop, bgBottom, showOverlay, showFrame },
     strikeTiming: {
       durationMs,
       trunkFinish,
@@ -49,18 +69,20 @@ export default function WebGLPage() {
       <header className="webgl-page__header">
         <h1 className="webgl-page__title">WebGL thunder</h1>
         <p className="webgl-page__subtitle">
-          {isArt
-            ? "Paths traced from plasma.svg — 3 center clusters, branches outward. Colors match the SVG filament."
-            : `Procedural bolts (1–${MAX_TRUNK_COUNT}). Defaults in `}
-          {!isArt && <code>src/webgl/thunderConfig.js</code>}
-          {!isArt && "."}
+          Plasma is revealed along bolt paths during the strike (same mask logic as the canvas
+          route). Chip and balls sit above the animation.
         </p>
         <a className="webgl-page__link" href="/">
           ← Canvas route
         </a>
       </header>
 
-      <ThunderWebGL params={params} strikeNonce={strikeNonce} />
+      <ThunderWebGL
+        params={params}
+        strikeNonce={strikeNonce}
+        showPatternNonce={showPatternNonce}
+        clearNonce={clearNonce}
+      />
 
       <div className="webgl-controls">
         <button
@@ -69,6 +91,14 @@ export default function WebGLPage() {
           onClick={playStrike}
         >
           Play strike
+        </button>
+
+        <button type="button" className="webgl-controls__btn" onClick={showPattern}>
+          Show pattern
+        </button>
+
+        <button type="button" className="webgl-controls__btn" onClick={clearPattern}>
+          Clear
         </button>
 
         <label className="webgl-controls__row">
@@ -81,6 +111,38 @@ export default function WebGLPage() {
             <option value="art">plasma.svg (3 clusters)</option>
             <option value="procedural">Procedural</option>
           </select>
+        </label>
+
+        <label className="webgl-controls__row">
+          <span className="webgl-controls__label">
+            BG top
+            <input type="color" value={bgTop} onChange={(e) => setBgTop(e.target.value)} />
+          </span>
+        </label>
+
+        <label className="webgl-controls__row">
+          <span className="webgl-controls__label">
+            BG bottom
+            <input type="color" value={bgBottom} onChange={(e) => setBgBottom(e.target.value)} />
+          </span>
+        </label>
+
+        <label className="webgl-controls__toggle">
+          <input
+            type="checkbox"
+            checked={showOverlay}
+            onChange={(e) => setShowOverlay(e.target.checked)}
+          />
+          Chip &amp; balls overlay
+        </label>
+
+        <label className="webgl-controls__toggle">
+          <input
+            type="checkbox"
+            checked={showFrame}
+            onChange={(e) => setShowFrame(e.target.checked)}
+          />
+          Frame border
         </label>
 
         <label className="webgl-controls__row">
@@ -197,39 +259,9 @@ export default function WebGLPage() {
             />
           </label>
 
-          <label className="webgl-controls__row">
-            <span className="webgl-controls__label">
-              Branch growth min
-              <output className="webgl-controls__value">{branchGrowthMin.toFixed(3)}</output>
-            </span>
-            <input
-              type="range"
-              min="0.01"
-              max="0.2"
-              step="0.005"
-              value={branchGrowthMin}
-              onChange={(e) => setBranchGrowthMin(Number(e.target.value))}
-            />
-          </label>
-
-          <label className="webgl-controls__row">
-            <span className="webgl-controls__label">
-              Branch growth max
-              <output className="webgl-controls__value">{branchGrowthMax.toFixed(3)}</output>
-            </span>
-            <input
-              type="range"
-              min="0.02"
-              max="0.25"
-              step="0.005"
-              value={branchGrowthMax}
-              onChange={(e) => setBranchGrowthMax(Number(e.target.value))}
-            />
-          </label>
-
           <p className="webgl-controls__hint">
-            Stagger auto-clamps when bolt count is high so every trunk finishes within the 0–1
-            timeline.
+            Art mode: bolts expand from 3 center clusters with a thin electric halo;
+            coverage follows bolt reach to the edges (no end pop).
           </p>
         </details>
       </div>

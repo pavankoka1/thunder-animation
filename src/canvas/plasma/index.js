@@ -4,6 +4,7 @@ import {
   segmentDrawLength,
   boltGrowthProgress,
   betspotFillBlend,
+  computePathCompletion,
   BOLT_PHASE_END,
 } from "./extractArtPaths.js";
 
@@ -11,6 +12,7 @@ export {
   segmentDrawLength,
   boltGrowthProgress,
   betspotFillBlend,
+  computePathCompletion,
   BOLT_PHASE_END,
 } from "./extractArtPaths.js";
 export { paintPlasmaStatic, paintPlasmaStrike, paintPlasmaPathsDebug } from "./paintStrike.js";

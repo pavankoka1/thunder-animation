@@ -16,6 +16,13 @@ export const DEFAULT_STRIKE_TIMING = {
   branchGrowthMax: 0.13,
 };
 
+export const DEFAULT_BETSPOT_APPEARANCE = {
+  bgTop: "#36EBF2",
+  bgBottom: "#00A2FF",
+  showFrame: true,
+  showOverlay: true,
+};
+
 export const DEFAULT_THUNDER_CONFIG = {
   /** `art` = paths traced from plasma.svg; `procedural` = generated bolts. */
   boltSource: "art",
@@ -25,6 +32,7 @@ export const DEFAULT_THUNDER_CONFIG = {
   branches: true,
   seed: 42,
   strikeTiming: DEFAULT_STRIKE_TIMING,
+  appearance: DEFAULT_BETSPOT_APPEARANCE,
 };
 
 /**
@@ -32,6 +40,12 @@ export const DEFAULT_THUNDER_CONFIG = {
  */
 export function resolveStrikeTiming(override = {}) {
   return { ...DEFAULT_STRIKE_TIMING, ...override };
+}
+
+function hexToRgb(hex) {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.replace(/./g, "$&$&") : h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
 /**
@@ -43,12 +57,19 @@ export function resolveThunderParams(override = {}) {
     1,
     Math.min(MAX_TRUNK_COUNT, override.trunkCount ?? DEFAULT_THUNDER_CONFIG.trunkCount)
   );
+  const appearance = {
+    ...DEFAULT_BETSPOT_APPEARANCE,
+    ...override.appearance,
+  };
 
   return {
     ...DEFAULT_THUNDER_CONFIG,
     ...override,
     trunkCount,
     strikeTiming,
+    appearance,
+    bgTopRgb: hexToRgb(appearance.bgTop),
+    bgBottomRgb: hexToRgb(appearance.bgBottom),
   };
 }
 
@@ -64,5 +85,15 @@ export function strikeTimingChanged(a, b) {
     a.trunkStagger !== b.trunkStagger ||
     a.branchGrowthMin !== b.branchGrowthMin ||
     a.branchGrowthMax !== b.branchGrowthMax
+  );
+}
+
+export function appearanceChanged(a, b) {
+  if (!a || !b) return true;
+  return (
+    a.bgTop !== b.bgTop ||
+    a.bgBottom !== b.bgBottom ||
+    a.showFrame !== b.showFrame ||
+    a.showOverlay !== b.showOverlay
   );
 }

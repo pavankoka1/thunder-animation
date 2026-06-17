@@ -1,6 +1,6 @@
 import { useState } from "react";
-import BetspotStage from "./components/BetspotStage.jsx";
 import "./App.css";
+import BetspotStage from "./components/BetspotStage.jsx";
 
 export default function App() {
   const [canvasMode, setCanvasMode] = useState("static");
@@ -34,7 +34,8 @@ export default function App() {
         <h1 className="app__title">SVG → Canvas (animated)</h1>
         <p className="app__subtitle">
           Paths are extracted from plasma.svg: 3 center thunder clusters are detected,
-          traced along the art, extended toward the edges, with sub-branches on bright pixels.
+          traced along the art, extended toward the edges, with sub-branches on bright
+          pixels.
         </p>
       </header>
 
@@ -86,12 +87,13 @@ export default function App() {
         <summary>Layer structure</summary>
         <dl>
           <dt>Show pattern</dt>
-          <dd>Full plasma layer rasterized from plasma.svg — same as the reference img.</dd>
+          <dd>
+            Full plasma layer rasterized from plasma.svg — same as the reference img.
+          </dd>
           <dt>Play strike</dt>
           <dd>
-            Three bolts start from the art&apos;s center clusters (left, right, bottom).
-            Each extends outward along traced lines; sub-branches fork from junctions; the
-            final phase fills the whole betspot.
+            Energy expands from 3 center clusters along thin filaments; a soft wave
+            connects them during the strike. End state matches Show pattern.
           </dd>
         </dl>
       </details>

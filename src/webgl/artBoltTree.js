@@ -1,35 +1,6 @@
 import { cumulativeLengths } from "../canvas/lightning/geometry.js";
-import { BOLT_PHASE_END } from "../canvas/plasma/extractArtPaths.js";
 import { SVG_FRAME } from "../canvas/frame.js";
 import { MAX_PATHS, MAX_POINTS_PER_PATH } from "./generateBoltPath.js";
-
-/**
- * Render the plasma raster layer (already loaded HTMLImageElement) into an
- * offscreen canvas at the target WebGL size, positioned to match the art
- * coordinate map used by artPathTreeToBoltTree.
- *
- * The resulting canvas is passed to gl.texImage2D and sampled in the shader
- * with `texture(u_plasmaTex, vec2(uv.x, 1.0 - uv.y))` to correct for the
- * WebGL vs canvas 2D y-axis flip.
- *
- * @param {HTMLImageElement} plasmaLayer
- * @param {number} canvasWidth
- * @param {number} canvasHeight
- * @returns {HTMLCanvasElement}
- */
-export function rasterizePlasmaForWebGL(plasmaLayer, canvasWidth, canvasHeight, padding = 18) {
-  const map = createArtCoordinateMap(canvasWidth, canvasHeight, padding);
-  const svgW = SVG_FRAME.width * map.scale;
-  const svgH = SVG_FRAME.height * map.scale;
-
-  const offscreen = document.createElement("canvas");
-  offscreen.width = canvasWidth;
-  offscreen.height = canvasHeight;
-  const ctx = offscreen.getContext("2d");
-  // Draw plasma at (ox, oy) — top-left 2D origin; shader handles y-flip via 1.0 - uv.y
-  ctx.drawImage(plasmaLayer, map.ox, map.oy, svgW, svgH);
-  return offscreen;
-}
 
 function downsamplePoints(points, maxPoints) {
   if (points.length <= maxPoints) return points;
@@ -42,11 +13,8 @@ function downsamplePoints(points, maxPoints) {
 
 /**
  * Map plasma viewBox (84×68, y-down) into WebGL canvas pixels (y-up).
- * @param {number} canvasWidth
- * @param {number} canvasHeight
- * @param {number} [padding]
  */
-export function createArtCoordinateMap(canvasWidth, canvasHeight, padding = 18) {
+export function createArtCoordinateMap(canvasWidth, canvasHeight, padding = 0) {
   const sx = (canvasWidth - padding * 2) / SVG_FRAME.width;
   const sy = (canvasHeight - padding * 2) / SVG_FRAME.height;
   const scale = Math.min(sx, sy);
@@ -58,6 +26,7 @@ export function createArtCoordinateMap(canvasWidth, canvasHeight, padding = 18) 
     ox,
     oy,
     canvasHeight,
+    canvasWidth,
     mapPoint(p) {
       return {
         x: p.x * scale + ox,
@@ -65,6 +34,19 @@ export function createArtCoordinateMap(canvasWidth, canvasHeight, padding = 18) 
       };
     },
   };
+}
+
+export function rasterizePlasmaForWebGL(plasmaLayer, canvasWidth, canvasHeight, padding = 0) {
+  const map = createArtCoordinateMap(canvasWidth, canvasHeight, padding);
+  const svgW = SVG_FRAME.width * map.scale;
+  const svgH = SVG_FRAME.height * map.scale;
+
+  const offscreen = document.createElement("canvas");
+  offscreen.width = canvasWidth;
+  offscreen.height = canvasHeight;
+  const ctx = offscreen.getContext("2d");
+  ctx.drawImage(plasmaLayer, map.ox, map.oy, svgW, svgH);
+  return offscreen;
 }
 
 function makePathMetaFromSegment(segment) {
@@ -78,24 +60,20 @@ function makePathMetaFromSegment(segment) {
     attachRatio: segment.attachRatio ?? 0,
     pathLength: totalLen,
     cumRatios,
-    /** Art timings are on bolt timeline — scale to full strike progress. */
-    spawnAt: segment.spawnAt * BOLT_PHASE_END,
-    finishAt: Math.min(1, segment.finishAt * BOLT_PHASE_END),
+    /** Timings on bolt timeline (0–1), same as canvas extractArtPaths */
+    spawnAt: segment.spawnAt,
+    finishAt: segment.finishAt,
+    strokeWidth: segment.strokeWidth ?? 2.6,
+    depth: segment.depth ?? 0,
   };
 }
 
-/**
- * Convert canvas art path tree → WebGL bolt tree (paths + reveal metadata).
- * @param {import("../canvas/plasma/extractArtPaths.js").generateArtBasedLightning extends Function ? ReturnType<...> : any} pathTree
- * @param {number} canvasWidth
- * @param {number} canvasHeight
- */
-export function artPathTreeToBoltTree(pathTree, canvasWidth, canvasHeight, padding = 18) {
+export function artPathTreeToBoltTree(pathTree, canvasWidth, canvasHeight, padding = 0) {
   const map = createArtCoordinateMap(canvasWidth, canvasHeight, padding);
   const segments = [...(pathTree?.segments ?? [])].sort((a, b) => a.depth - b.depth);
 
   if (!segments.length) {
-    return { paths: [], pointCounts: [], pathMeta: [], clusters: [], origin: null };
+    return { paths: [], pointCounts: [], pathMeta: [], clusters: [], origin: null, map };
   }
 
   const idToPathIdx = new Map();
@@ -132,6 +110,7 @@ export function artPathTreeToBoltTree(pathTree, canvasWidth, canvasHeight, paddi
     pathMeta,
     clusters,
     origin,
+    map,
     source: "art",
   };
 }

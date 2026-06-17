@@ -1,8 +1,9 @@
 import { BETSPOT_CLIP, THUNDER_ORIGIN } from "../betspotGeometry.js";
 import { createRng, randRange } from "../lightning/random.js";
 import { cumulativeLengths, subdivideSegment } from "../lightning/geometry.js";
+import { buildCausticCanvas, buildSkeletonCanvas } from "./skeletonMask.js";
 
-export const BOLT_PHASE_END = 0.82;
+export const BOLT_PHASE_END = 1;
 
 const key = (x, y) => `${x},${y}`;
 
@@ -10,6 +11,7 @@ function dist(a, b) {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
+/** White / pale filament pixels in the plasma raster (path skeleton). */
 function isBright(data, w, x, y) {
   if (x < 0 || y < 0 || x >= w || y < 0) return false;
   const i = (y * w + x) * 4;
@@ -32,7 +34,26 @@ function buildBrightMask(plasmaImage, frame) {
       bright[y * w + x] = isBright(data, w, x, y) ? 1 : 0;
     }
   }
-  return { bright, w, h, data };
+  return { bright: dilateBright(bright, w, h, 1), w, h, data };
+}
+
+/** Bridge 1px gaps so traced paths follow connected filament skeletons. */
+function dilateBright(bright, w, h, radius = 1) {
+  const out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      if (!bright[y * w + x]) continue;
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          out[ny * w + nx] = 1;
+        }
+      }
+    }
+  }
+  return out;
 }
 
 /** K-means — finds the 3 center thunder clusters in the art. */
@@ -258,8 +279,8 @@ function assignTimings(segments, rootIds) {
   const roots = rootIds.map((id) => segments.find((s) => s.id === id)).filter(Boolean);
 
   roots.forEach((root, i) => {
-    root.spawnAt = i * 0.04;
-    root.finishAt = 0.24 + i * 0.04;
+    root.spawnAt = i * 0.02;
+    root.finishAt = 0.82 + i * 0.08;
   });
 
   function scheduleChildren(parent) {
@@ -269,9 +290,10 @@ function assignTimings(segments, rootIds) {
 
     for (const child of kids) {
       const window = parent.finishAt - parent.spawnAt;
-      child.spawnAt = parent.spawnAt + child.attachRatio * window * 0.9;
-      const growth = 0.05 + child.depth * 0.015 + Math.min(child.length * 0.012, 0.1);
-      child.finishAt = Math.min(child.spawnAt + growth, BOLT_PHASE_END - 0.03);
+      // Branches closer to center spawn first; edge branches follow the outward wave
+      child.spawnAt = parent.spawnAt + child.attachRatio ** 1.2 * window * 0.86;
+      const growth = 0.07 + child.depth * 0.018 + Math.min(child.length * 0.016, 0.12);
+      child.finishAt = Math.min(child.spawnAt + growth, 0.97);
       scheduleChildren(child);
     }
   }
@@ -308,7 +330,7 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
       armPoints,
       null,
       0,
-      3.8,
+      0,
       ci
     );
     segments.push(arm);
@@ -317,9 +339,8 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
     const armCum = cumulativeLengths(armPoints);
     const branchVisited = new Set(armPoints.map((p) => key(p.x, p.y)));
 
-    for (let i = 2; i < armPoints.length - 2; i += 2) {
+    for (let i = 1; i < armPoints.length - 1; i += 1) {
       const cur = armPoints[i];
-      const prev = armPoints[i - 1];
       const onPath = new Set(armPoints.map((p) => key(p.x, p.y)));
 
       const side = getNeighbors(cur.x, cur.y, w, h, bright).filter(
@@ -342,7 +363,7 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
             simplified,
             arm.id,
             attachRatio,
-            2.6,
+            0,
             ci
           )
         );
@@ -354,7 +375,7 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
             (n) => !bOnPath.has(key(n.x, n.y)) && !branchVisited.has(key(n.x, n.y))
           );
 
-          if (!bSide.length || rng() > 0.55) continue;
+          if (!bSide.length || rng() > 0.5) continue;
 
           const sub = traceSideBranch(bCur, bSide[0], bright, w, h, origin, branchVisited, 25);
           if (sub.length < 2) continue;
@@ -367,7 +388,7 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
               simplifyPoints(sub, 0.5),
               branchId,
               subCum[j] / subCum[subCum.length - 1],
-              2,
+              0,
               ci
             )
           );
@@ -378,11 +399,17 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
 
   assignTimings(segments, rootIds);
 
+  const segmentsByDepth = [...segments].sort((a, b) => a.depth - b.depth);
+
   return {
     origin,
     segments,
+    segmentsByDepth,
     trunkId: rootIds[0] ?? null,
     clusters,
+    brightMask: { bright, w, h },
+    skeletonCanvas: buildSkeletonCanvas({ bright, w, h }),
+    causticCanvas: buildCausticCanvas(plasmaImage, frame),
   };
 }
 
@@ -395,12 +422,31 @@ export function segmentDrawLength(segment, progress) {
   return segment.length * eased;
 }
 
-export function betspotFillBlend(progress) {
-  if (progress <= BOLT_PHASE_END) return 0;
-  const t = (progress - BOLT_PHASE_END) / (1 - BOLT_PHASE_END);
-  return 1 - (1 - t) ** 1.8;
+/** Length-weighted fraction of total path network drawn at `boltT`. */
+export function computePathCompletion(segments, boltT) {
+  if (!segments?.length) return 0;
+
+  let drawn = 0;
+  let total = 0;
+  for (const segment of segments) {
+    const len = segment.length || 1;
+    total += len;
+    drawn += Math.min(len, segmentDrawLength(segment, boltT));
+  }
+  return total > 0 ? drawn / total : 0;
+}
+
+/**
+ * Gradual betspot gap-fill — closes corners once paths finish extending (~85%+).
+ */
+export function betspotFillBlend(progress, pathCompletion = 0) {
+  const p = Math.max(0, Math.min(1, progress));
+  const c = Math.max(0, Math.min(1, pathCompletion));
+  const pathGate = Math.max(0, (c - 0.42) / 0.58);
+  const timeGate = Math.max(0, (p - 0.48) / 0.52) ** 1.05;
+  return Math.min(1, pathGate * timeGate);
 }
 
 export function boltGrowthProgress(progress) {
-  return Math.min(progress / BOLT_PHASE_END, 1);
+  return Math.max(0, Math.min(1, progress));
 }

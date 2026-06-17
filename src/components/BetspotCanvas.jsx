@@ -8,6 +8,8 @@ import {
 } from "../canvas/svgRenderer.js";
 
 const STRIKE_DURATION_MS = 2000;
+/** Quantize strike to ~30 fps — mask paint is heavy; visually identical on a 2s strike. */
+const STRIKE_STEPS = 60;
 
 export default function BetspotCanvas({ mode = "static", playNonce = 0, debugPaths = false }) {
   const canvasRef = useRef(null);
@@ -81,11 +83,14 @@ export default function BetspotCanvas({ mode = "static", playNonce = 0, debugPat
 
     const tick = (now) => {
       const elapsed = now - startTimeRef.current;
-      const progress = Math.min(elapsed / STRIKE_DURATION_MS, 1);
+      const raw = Math.min(elapsed / STRIKE_DURATION_MS, 1);
+      const progress = Math.round(raw * STRIKE_STEPS) / STRIKE_STEPS;
       paintFrame(progress);
 
-      if (progress < 1) {
+      if (raw < 1) {
         rafRef.current = requestAnimationFrame(tick);
+      } else {
+        paintFrame(1);
       }
     };
 

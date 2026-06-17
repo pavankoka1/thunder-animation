@@ -5,20 +5,30 @@ import {
   computePathReveals,
   generateBoltTree,
 } from "./generateBoltPath.js";
-import { PLASMA_BOLT_STYLE, SVG_REF_SIZE } from "./plasmaBoltStyle.js";
+import { boltGrowthProgress } from "../canvas/plasma/extractArtPaths.js";
+import {
+  ART_STRIKE_BOLT_STYLE,
+  PROCEDURAL_BOLT_STYLE,
+  SVG_REF_SIZE,
+} from "./plasmaBoltStyle.js";
+import {
+  createPlasmaCompositeSurface,
+  paintPlasmaComposite,
+} from "./plasmaComposite.js";
 import {
   DEFAULT_STRIKE_TIMING,
+  appearanceChanged,
   resolveThunderParams,
   strikeTimingChanged,
 } from "./thunderConfig.js";
 
-/** Betspot frame gradient (betspot-frame.svg). */
+/** @deprecated use appearance.bgTop/bgBottom from config */
 export const THUNDER_COLORS = {
   bgTop: [54 / 255, 235 / 255, 242 / 255],
   bgBottom: [0 / 255, 162 / 255, 255 / 255],
-  glowOuter: PLASMA_BOLT_STYLE.outer,
-  glowMid: PLASMA_BOLT_STYLE.glow,
-  glowCore: PLASMA_BOLT_STYLE.core,
+  glowOuter: PROCEDURAL_BOLT_STYLE.outer,
+  glowMid: PROCEDURAL_BOLT_STYLE.glow,
+  glowCore: PROCEDURAL_BOLT_STYLE.core,
 };
 
 const VERT = `#version 300 es
@@ -46,10 +56,9 @@ uniform float u_glowAlpha;
 uniform float u_coreAlpha;
 uniform float u_layerOpacity;
 uniform sampler2D u_plasmaTex;
-/** 0 = idle (no fill), 0–1 during animation fill phase, 1 = fully settled */
-uniform float u_fillBlend;
-/** Distance (canvas pixels) from bolt path at which plasma texture is revealed */
-uniform float u_revealRadius;
+uniform float u_useMask;
+uniform vec3 u_bgTop;
+uniform vec3 u_bgBottom;
 
 out vec4 out_FragColor;
 
@@ -124,10 +133,8 @@ float boltDistance(vec2 p) {
 }
 
 vec3 betspotBackground(vec2 uv) {
-  vec3 top = vec3(${THUNDER_COLORS.bgTop.join(", ")});
-  vec3 bottom = vec3(${THUNDER_COLORS.bgBottom.join(", ")});
   float t = clamp(uv.y * 0.85 + 0.08, 0.0, 1.0);
-  return mix(top, bottom, t);
+  return mix(u_bgTop, u_bgBottom, t);
 }
 
 vec3 screenBlend(vec3 base, vec3 layer) {
@@ -138,44 +145,49 @@ void main() {
   vec2 frag = gl_FragCoord.xy;
   vec2 uv = frag / u_resolution;
 
-  vec3 bg = betspotBackground(uv);
   float d = boltDistance(frag);
-
-  float flicker = 0.97 + 0.03 * sin(u_time * 14.0 + frag.y * 0.04);
-
+  float flicker =
+    0.88 +
+    0.12 * sin(u_time * 22.0 + frag.x * 0.09 + frag.y * 0.06) *
+    sin(u_time * 31.0 + frag.y * 0.11);
   float core = exp(-d / u_coreFalloff) * u_coreAlpha * flicker;
   float glow = exp(-(d * d) / (2.0 * u_glowSigma * u_glowSigma)) * u_glowAlpha;
   float outer = exp(-(d * d) / (2.0 * u_outerSigma * u_outerSigma)) * u_outerAlpha;
 
-  // ── Plasma texture reveal ──────────────────────────────────────────────────
-  // sdfActive: during strike the full SDF is active; at rest it's gated by
-  // u_fillBlend so that idle (fillBlend=0) shows nothing.
-  float sdfActive = u_strikeActive > 0.5 ? 1.0 : u_fillBlend;
-
-  // Soft halo around the nearest revealed bolt segment
-  float sdfFill = clamp(1.0 - d / max(u_revealRadius, 0.001), 0.0, 1.0);
-  sdfFill = pow(sdfFill, 0.55) * sdfActive;
-
-  // Union of the SDF halo and the global fill progress
-  float reveal = max(sdfFill, u_fillBlend);
-
-  // Sample plasma texture (canvas y=0 is top; WebGL uv.y=0 is bottom — flip)
   vec4 plasma = texture(u_plasmaTex, vec2(uv.x, 1.0 - uv.y));
-  // Source-over: mix background with plasma using baked alpha
-  vec3 plasmaCol = mix(bg, plasma.rgb, plasma.a * reveal);
 
-  // ── Bolt glow ──────────────────────────────────────────────────────────────
+  if (u_useMask > 0.5) {
+    // Art mode — texture is frame + screen(plasma) baked in 2D (matches home canvas).
+    vec3 col = plasma.rgb;
+
+    if (u_strikeActive > 0.5) {
+      float glowFade = 1.0 - smoothstep(0.15, 0.55, length(col));
+      vec3 bolt = vec3(0.0);
+      bolt += vec3(${ART_STRIKE_BOLT_STYLE.outer.join(", ")}) * outer * glowFade;
+      bolt += vec3(${ART_STRIKE_BOLT_STYLE.glow.join(", ")}) * glow * glowFade;
+      bolt += vec3(${ART_STRIKE_BOLT_STYLE.core.join(", ")}) * core * glowFade;
+      bolt *= u_layerOpacity;
+      col = screenBlend(col, bolt);
+    }
+
+    out_FragColor = vec4(min(col, vec3(1.0)), 1.0);
+    return;
+  }
+
+  // Procedural — gradient betspot + SDF bolt glow (opaque).
+  vec3 bg = betspotBackground(uv);
+  float procFlicker = 0.97 + 0.03 * sin(u_time * 14.0 + frag.y * 0.04);
+  float pCore = exp(-d / u_coreFalloff) * u_coreAlpha * procFlicker;
+  float pGlow = exp(-(d * d) / (2.0 * u_glowSigma * u_glowSigma)) * u_glowAlpha;
+  float pOuter = exp(-(d * d) / (2.0 * u_outerSigma * u_outerSigma)) * u_outerAlpha;
+
   vec3 bolt = vec3(0.0);
-  bolt += vec3(${THUNDER_COLORS.glowOuter.join(", ")}) * outer;
-  bolt += vec3(${THUNDER_COLORS.glowMid.join(", ")}) * glow;
-  bolt += vec3(${THUNDER_COLORS.glowCore.join(", ")}) * core;
+  bolt += vec3(${PROCEDURAL_BOLT_STYLE.outer.join(", ")}) * pOuter;
+  bolt += vec3(${PROCEDURAL_BOLT_STYLE.glow.join(", ")}) * pGlow;
+  bolt += vec3(${PROCEDURAL_BOLT_STYLE.core.join(", ")}) * pCore;
+  bolt *= u_layerOpacity;
 
-  // Glow visible during animation and in the settled state; hidden when idle
-  float glowScale = max(u_strikeActive > 0.5 ? 1.0 : 0.0, u_fillBlend);
-  bolt *= u_layerOpacity * glowScale;
-
-  // ── Composite ─────────────────────────────────────────────────────────────
-  vec3 col = screenBlend(plasmaCol, bolt);
+  vec3 col = screenBlend(bg, bolt);
   out_FragColor = vec4(min(col, vec3(1.0)), 1.0);
 }
 `;
@@ -322,10 +334,9 @@ function uploadPathTextures(gl, tree, width, height) {
   return { pointTex, countTex, revealTex, numPaths: tree.paths.length };
 }
 
-function applyThicknessUniforms(gl, uniforms, thickness, canvasWidth) {
+function applyThicknessUniforms(gl, uniforms, thickness, canvasWidth, style) {
   const scale = canvasWidth / SVG_REF_SIZE;
   const t = Math.max(0.2, thickness);
-  const style = PLASMA_BOLT_STYLE;
 
   gl.uniform1f(uniforms.uCoreFalloff, style.coreFalloff * scale * t);
   gl.uniform1f(uniforms.uGlowSigma, style.glowSigma * scale * t);
@@ -385,7 +396,7 @@ function easeOutCubic(t) {
  */
 export function createThunderRenderer(canvas, params = {}) {
   const gl = canvas.getContext("webgl2", {
-    alpha: false,
+    alpha: true,
     antialias: true,
     premultipliedAlpha: false,
   });
@@ -413,7 +424,7 @@ export function createThunderRenderer(canvas, params = {}) {
     height
   );
 
-  // Plasma texture slot (TEXTURE3) — starts as 1×1 transparent; replaced via setPlasmaTexture()
+  // Plasma texture — art mode uploads 2D composite each frame; procedural leaves transparent.
   let plasmaTex = (() => {
     const t = gl.createTexture();
     gl.activeTexture(gl.TEXTURE3);
@@ -428,6 +439,13 @@ export function createThunderRenderer(canvas, params = {}) {
     );
     return t;
   })();
+
+  const compositeSurface = createPlasmaCompositeSurface(width, height);
+  let artPlasmaLayer = null;
+  let artPathTree = null;
+  let artFrameImage = null;
+  /** @type {'idle' | 'strike' | 'static'} */
+  let compositeMode = "idle";
 
   const program = createProgram(gl, VERT, FRAG);
   gl.useProgram(program);
@@ -461,79 +479,154 @@ export function createThunderRenderer(canvas, params = {}) {
     uCoreAlpha: gl.getUniformLocation(program, "u_coreAlpha"),
     uLayerOpacity: gl.getUniformLocation(program, "u_layerOpacity"),
     uPlasmaTex: gl.getUniformLocation(program, "u_plasmaTex"),
-    uFillBlend: gl.getUniformLocation(program, "u_fillBlend"),
-    uRevealRadius: gl.getUniformLocation(program, "u_revealRadius"),
+    uUseMask: gl.getUniformLocation(program, "u_useMask"),
+    uBgTop: gl.getUniformLocation(program, "u_bgTop"),
+    uBgBottom: gl.getUniformLocation(program, "u_bgBottom"),
   };
 
-  const style = PLASMA_BOLT_STYLE;
+  function activeBoltStyle() {
+    return isArtMode() ? ART_STRIKE_BOLT_STYLE : PROCEDURAL_BOLT_STYLE;
+  }
 
   let strikeActive = false;
-  let strikeProgress = 1;
+  let strikeProgress = 0;
   let strikeAnim = null;
-  /** 0 = idle (before first strike), 0–1 during fill phase, 1 = fully settled */
-  let fillBlend = 0;
+  let settledProgress = 0;
+
+  function isArtMode() {
+    return currentParams.boltSource === "art" || tree?.source === "art";
+  }
 
   function strikeDurationMs() {
     return currentParams.strikeTiming?.durationMs ?? DEFAULT_STRIKE_TIMING.durationMs;
   }
 
+  let raf = 0;
+  let disposed = false;
+  let compositeDirty = true;
+  let lastCompositeKey = NaN;
+  const t0 = performance.now();
+
+  function uploadPlasmaComposite(force = false) {
+    if (!isArtMode() || !artPlasmaLayer) return;
+
+    const progressKey =
+      compositeMode === "strike"
+        ? Math.round(strikeProgress * 60) / 60
+        : compositeMode === "static"
+          ? 1
+          : 0;
+
+    if (!force && progressKey === lastCompositeKey && !compositeDirty) return;
+
+    lastCompositeKey = progressKey;
+    compositeDirty = false;
+
+    const useFrame = currentParams.appearance?.showFrame !== false;
+    paintPlasmaComposite(
+      compositeSurface,
+      useFrame ? artFrameImage : null,
+      artPlasmaLayer,
+      artPathTree,
+      progressKey,
+      compositeMode,
+      currentParams.appearance
+    );
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, plasmaTex);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      compositeSurface.canvas
+    );
+  }
+
+  function markCompositeDirty() {
+    compositeDirty = true;
+    lastCompositeKey = NaN;
+  }
+
+  function needsRenderLoop() {
+    if (strikeAnim) return true;
+    if (!isArtMode()) return true;
+    return compositeDirty;
+  }
+
+  function scheduleDraw() {
+    if (!raf && !disposed) {
+      raf = requestAnimationFrame(draw);
+    }
+  }
+
+  function applyBgUniforms() {
+    const [tr, tg, tb] = currentParams.bgTopRgb ?? [54, 235, 242];
+    const [br, bg, bb] = currentParams.bgBottomRgb ?? [0, 162, 255];
+    gl.uniform3f(uniforms.uBgTop, tr / 255, tg / 255, tb / 255);
+    gl.uniform3f(uniforms.uBgBottom, br / 255, bg / 255, bb / 255);
+    gl.clearColor(0, 0, 0, 0);
+  }
+
   function applyStaticUniforms() {
+    const style = activeBoltStyle();
     gl.useProgram(program);
     gl.uniform1i(uniforms.uPointTex, 0);
     gl.uniform1i(uniforms.uCountTex, 1);
     gl.uniform1i(uniforms.uRevealTex, 2);
     gl.uniform1i(uniforms.uPlasmaTex, 3);
-    gl.uniform1f(uniforms.uFillBlend, fillBlend);
-    gl.uniform1f(uniforms.uRevealRadius, style.revealRadius * (width / SVG_REF_SIZE));
+    gl.uniform1f(uniforms.uUseMask, isArtMode() ? 1 : 0);
+    applyBgUniforms();
     gl.uniform2f(uniforms.uResolution, width, height);
     gl.uniform1f(uniforms.uOuterAlpha, style.outerAlpha);
     gl.uniform1f(uniforms.uGlowAlpha, style.glowAlpha);
     gl.uniform1f(uniforms.uCoreAlpha, style.coreAlpha);
     gl.uniform1f(uniforms.uLayerOpacity, style.layerOpacity);
-    applyThicknessUniforms(gl, uniforms, currentParams.thickness, width);
+    applyThicknessUniforms(gl, uniforms, currentParams.thickness, width, style);
     gl.uniform1i(uniforms.uNumPaths, tree.paths.length);
   }
 
   function syncRevealUniforms() {
-    const reveals = computePathReveals(strikeProgress, tree.pathMeta, tree.paths.length);
+    const revealInput = isArtMode() ? boltGrowthProgress(strikeProgress) : strikeProgress;
+    const reveals = computePathReveals(revealInput, tree.pathMeta, tree.paths.length);
     uploadRevealTex(gl, revealTex, reveals);
     gl.uniform1f(uniforms.uStrikeActive, strikeActive ? 1 : 0);
   }
 
   applyStaticUniforms();
   syncRevealUniforms();
+  uploadPlasmaComposite(true);
   gl.viewport(0, 0, width, height);
-  const [bgR, bgG, bgB] = THUNDER_COLORS.bgBottom;
-  gl.clearColor(bgR, bgG, bgB, 1);
-
-  let raf = 0;
-  let disposed = false;
-  const t0 = performance.now();
 
   const draw = (now) => {
     if (disposed) return;
+    raf = 0;
 
     if (strikeAnim) {
-      const t = (now - strikeAnim.start) / strikeAnim.duration;
-      strikeProgress = easeOutCubic(t);
-
-      // Fill the betspot with plasma texture starting once bolts have reached
-      // their endpoints (mirrors canvas betspotFillBlend timing).
-      const fillStart = currentParams.strikeTiming?.trunkFinish ?? 0.72;
-      const rawFillT = Math.max(0, (strikeProgress - fillStart) / Math.max(1 - fillStart, 0.01));
-      fillBlend = 1 - (1 - Math.min(rawFillT, 1)) ** 1.8;
+      const t = Math.min(1, (now - strikeAnim.start) / strikeAnim.duration);
+      const nextProgress = Math.round(t * 60) / 60;
+      if (nextProgress !== strikeProgress) {
+        strikeProgress = nextProgress;
+        markCompositeDirty();
+      }
 
       if (t >= 1) {
         strikeProgress = 1;
-        fillBlend = 1;
+        settledProgress = 1;
         strikeAnim = null;
         strikeActive = false;
+        compositeMode = "strike";
+        markCompositeDirty();
       }
       syncRevealUniforms();
     }
 
+    if (isArtMode()) {
+      uploadPlasmaComposite();
+    }
+
     gl.useProgram(program);
-    gl.uniform1f(uniforms.uFillBlend, fillBlend);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, pointTex);
     gl.activeTexture(gl.TEXTURE1);
@@ -545,7 +638,10 @@ export function createThunderRenderer(canvas, params = {}) {
     gl.uniform1f(uniforms.uTime, (now - t0) * 0.001);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    raf = requestAnimationFrame(draw);
+
+    if (needsRenderLoop()) {
+      scheduleDraw();
+    }
   };
 
   raf = requestAnimationFrame(draw);
@@ -575,18 +671,58 @@ export function createThunderRenderer(canvas, params = {}) {
         );
         if (!strikeAnim) {
           strikeActive = false;
-          strikeProgress = 1;
+          strikeProgress = settledProgress;
           syncRevealUniforms();
+          markCompositeDirty();
+          scheduleDraw();
         }
       } else if (regenTiming) {
         applyStrikeTimingsToTree(tree, currentParams.strikeTiming);
         if (!strikeAnim) syncRevealUniforms();
       }
 
-      if (currentParams.thickness !== prev.thickness || regenGeometry) {
+      if (
+        currentParams.thickness !== prev.thickness ||
+        regenGeometry ||
+        appearanceChanged(currentParams.appearance, prev.appearance)
+      ) {
         gl.useProgram(program);
-        applyThicknessUniforms(gl, uniforms, currentParams.thickness, width);
+        if (currentParams.thickness !== prev.thickness || regenGeometry) {
+          applyThicknessUniforms(
+            gl,
+            uniforms,
+            currentParams.thickness,
+            width,
+            activeBoltStyle()
+          );
+        }
+        if (appearanceChanged(currentParams.appearance, prev.appearance)) {
+          applyBgUniforms();
+          markCompositeDirty();
+          scheduleDraw();
+        }
+        gl.uniform1f(uniforms.uUseMask, isArtMode() ? 1 : 0);
       }
+    },
+    showPattern() {
+      settledProgress = 1;
+      strikeProgress = 1;
+      strikeActive = false;
+      strikeAnim = null;
+      compositeMode = "static";
+      syncRevealUniforms();
+      markCompositeDirty();
+      scheduleDraw();
+    },
+    clearPattern() {
+      settledProgress = 0;
+      strikeProgress = 0;
+      strikeActive = false;
+      strikeAnim = null;
+      compositeMode = "idle";
+      syncRevealUniforms();
+      markCompositeDirty();
+      scheduleDraw();
     },
     reshuffle() {
       if (currentParams.boltSource === "art") return;
@@ -599,9 +735,18 @@ export function createThunderRenderer(canvas, params = {}) {
       );
       if (!strikeAnim) {
         strikeActive = false;
-        strikeProgress = 1;
+        strikeProgress = settledProgress;
         syncRevealUniforms();
+        markCompositeDirty();
+        scheduleDraw();
       }
+    },
+    setArtAssets({ plasmaLayer, pathTree, frameImage }) {
+      artPlasmaLayer = plasmaLayer ?? null;
+      artPathTree = pathTree ?? null;
+      artFrameImage = frameImage ?? null;
+      markCompositeDirty();
+      scheduleDraw();
     },
     setArtTree(artTree) {
       tree = artTree;
@@ -610,28 +755,33 @@ export function createThunderRenderer(canvas, params = {}) {
         uniforms.uNumPaths,
         uploadTree(gl, { pointTex, countTex }, tree, width, height)
       );
+      gl.uniform1f(uniforms.uUseMask, isArtMode() ? 1 : 0);
       if (!strikeAnim) {
         strikeActive = false;
-        strikeProgress = 1;
+        strikeProgress = settledProgress;
         syncRevealUniforms();
+        markCompositeDirty();
+        scheduleDraw();
       }
     },
+    /** @deprecated use setArtAssets */
     setPlasmaTexture(canvasElement) {
       gl.activeTexture(gl.TEXTURE3);
       gl.bindTexture(gl.TEXTURE_2D, plasmaTex);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, canvasElement);
     },
     playStrike(durationMs = strikeDurationMs()) {
       strikeActive = true;
       strikeProgress = 0;
-      fillBlend = 0;  // start from blank — fill grows during animation
+      settledProgress = 0;
+      compositeMode = "strike";
       syncRevealUniforms();
+      markCompositeDirty();
       strikeAnim = {
         start: performance.now(),
         duration: durationMs,
       };
+      scheduleDraw();
     },
     destroy() {
       disposed = true;
