@@ -3,17 +3,28 @@ import { SVG_FRAME } from "../canvas/frame.js";
 import { paintPlasmaStatic, paintPlasmaStrike } from "../canvas/plasma/paintStrike.js";
 
 let plasmaScratchCanvas;
+let plasmaScratchScale = 0;
 
-function getPlasmaScratch() {
-  if (!plasmaScratchCanvas) {
-    plasmaScratchCanvas = document.createElement("canvas");
-    plasmaScratchCanvas.width = SVG_FRAME.width;
-    plasmaScratchCanvas.height = SVG_FRAME.height;
+/**
+ * Scratch canvas sized to backing resolution and transformed so that callers
+ * still address pixels in viewBox units. This mirrors the home canvas pipeline
+ * (`setupCanvas` in svgRenderer.js): masking + plasma upscale happen at full
+ * backing pixels with high-quality smoothing → crisp bolt edges.
+ */
+function getPlasmaScratch(scale) {
+  const targetW = Math.round(SVG_FRAME.width * scale);
+  const targetH = Math.round(SVG_FRAME.height * scale);
+  if (!plasmaScratchCanvas || plasmaScratchScale !== scale) {
+    plasmaScratchCanvas = plasmaScratchCanvas ?? document.createElement("canvas");
+    plasmaScratchCanvas.width = targetW;
+    plasmaScratchCanvas.height = targetH;
+    plasmaScratchScale = scale;
   }
-  return {
-    canvas: plasmaScratchCanvas,
-    ctx: plasmaScratchCanvas.getContext("2d"),
-  };
+  const ctx = plasmaScratchCanvas.getContext("2d");
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  return { canvas: plasmaScratchCanvas, ctx };
 }
 
 function drawFrameBase(ctx, frameImage, appearance) {
@@ -78,18 +89,28 @@ export function paintPlasmaComposite(
   const { width: w, height: h } = SVG_FRAME;
 
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
   ctx.clearRect(0, 0, w, h);
   drawFrameBase(ctx, frameImage, appearance);
 
   if (mode !== "idle" && progress > 0 && plasmaLayer) {
-    const { canvas: scratch, ctx: scratchCtx } = getPlasmaScratch();
+    // Render reveal on a scratch sized to backing pixels so masking + upscale
+    // happen at full resolution — matches the home canvas's setupCanvas()
+    // DPR-aware transform. A small (viewBox-sized) scratch would mask the
+    // plasma at 84×68 first and then bilinear-blur the result on copy, which
+    // is what made bolts read "thick" in WebGL.
+    const { canvas: scratch, ctx: scratchCtx } = getPlasmaScratch(scale);
     paintPlasmaLayerOnly(scratchCtx, plasmaLayer, pathTree, progress, mode);
 
     ctx.save();
     roundedRectPath(ctx, BETSPOT_CLIP);
     ctx.clip();
     ctx.globalCompositeOperation = "screen";
-    ctx.drawImage(scratch, 0, 0, w, h);
+    // Scratch is already at backing resolution — draw 1:1 (no upscale here).
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(scratch, 0, 0);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
     ctx.globalCompositeOperation = "source-over";
     ctx.restore();
   }

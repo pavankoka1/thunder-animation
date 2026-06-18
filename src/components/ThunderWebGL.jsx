@@ -41,10 +41,18 @@ export default function ThunderWebGL({
         let pathTree;
         let frameImage;
 
+        const dpr = window.devicePixelRatio || 1;
+        const backingW = Math.round(BETSPOT_W * dpr);
+        const backingH = Math.round(BETSPOT_H * dpr);
+        canvas.style.width = `${BETSPOT_W}px`;
+        canvas.style.height = `${BETSPOT_H}px`;
+        canvas.width = backingW;
+        canvas.height = backingH;
+
         if (params.boltSource === "art") {
           ({ boltTree, plasmaLayer, pathTree, frameImage } = await loadArtBoltTree(
-            BETSPOT_W,
-            BETSPOT_H
+            backingW,
+            backingH
           ));
           if (cancelled) return;
         }

@@ -200,18 +200,25 @@ function traceSideBranch(fromPoint, firstStep, bright, w, h, origin, branchVisit
     );
     if (!nbrs.length) break;
 
-    let best = nbrs[0];
+    const curDist = dist(stepCur, origin);
+    let best = null;
     let bestScore = -Infinity;
     for (const n of nbrs) {
       const stepAngle = Math.atan2(n.y - stepCur.y, n.x - stepCur.x);
       const perp = Math.abs(Math.sin(stepAngle - forward));
       const outward = dist(n, origin);
+      // Hard-reject inward steps so sub-branches always extend away from origin
+      // (the wavefront reveal model assumes monotonic outward growth — without
+      // this, branches occasionally curl back toward centre and read as "paint
+      // landing from the edge").
+      if (outward <= curDist - 0.15) continue;
       const score = outward + perp * 3;
       if (score > bestScore) {
         bestScore = score;
         best = n;
       }
     }
+    if (!best) break;
 
     local.add(key(best.x, best.y));
     branchVisited.add(key(best.x, best.y));
@@ -258,6 +265,73 @@ function extendPathToEdge(points, rng, clip) {
   return [...points.slice(0, -1), ...extension];
 }
 
+/**
+ * Prepend a short jittered link from origin to the trunk's existing start so
+ * the path begins at the chip center. Skips when the arm already starts at
+ * (or essentially at) origin to avoid creating a zero-length stub.
+ */
+function anchorArmAtOrigin(armPoints, origin, rng) {
+  if (!armPoints.length) return armPoints;
+  const first = armPoints[0];
+  const d = dist(first, origin);
+  if (d < 1) return armPoints;
+
+  // Subdivide so the wavefront sees a smooth growth from origin into the arm
+  // instead of one big edge-of-the-stroke jump.
+  const link = subdivideSegment(
+    origin.x,
+    origin.y,
+    first.x,
+    first.y,
+    Math.max(3, Math.round(d * 0.6)),
+    0.8,
+    rng
+  );
+  // `link` ends at `first`, so drop the duplicate before concatenating.
+  return [...link.slice(0, -1), ...armPoints];
+}
+
+/**
+ * Jittered ray from origin to the betspot edge in a given direction.
+ * Used to synthesize trunks for wing directions the art clusters don't cover,
+ * so the strike radiates symmetrically from center to all edges instead of
+ * leaving SE/SW empty until sub-branches catch up.
+ */
+function syntheticArmToEdge(origin, angle, rng, clip = BETSPOT_CLIP) {
+  const edge = rayToBetspotEdge(origin.x, origin.y, angle, clip);
+  if (dist(origin, edge) < 2) return null;
+  return subdivideSegment(
+    origin.x,
+    origin.y,
+    edge.x,
+    edge.y,
+    randRange(rng, 6, 8),
+    1.7,
+    rng
+  );
+}
+
+/** Shortest signed angular distance between two angles (radians). */
+function angularDist(a, b) {
+  const diff = Math.atan2(Math.sin(a - b), Math.cos(a - b));
+  return Math.abs(diff);
+}
+
+/**
+ * Wing directions the strike should always reach from the center: NW, NE, S,
+ * SE, SW (screen-down y-positive coordinate system). If the K-means clusters
+ * don't already cover an angle, synthesize a trunk for it so every wing grows
+ * outward from the start of the strike.
+ */
+const WING_ANGLES = [
+  -Math.PI * 0.78,        // NW
+  -Math.PI * 0.22,        // NE
+   Math.PI * 0.5,         // S
+   Math.PI * 0.25,        // SE
+   Math.PI * 0.75,        // SW
+];
+const WING_COVERED_THRESHOLD = Math.PI * 0.18;
+
 function makeSegment(id, depth, points, parentId, attachRatio, strokeWidth, clusterId) {
   const cum = cumulativeLengths(points);
   return {
@@ -278,9 +352,13 @@ function makeSegment(id, depth, points, parentId, attachRatio, strokeWidth, clus
 function assignTimings(segments, rootIds) {
   const roots = rootIds.map((id) => segments.find((s) => s.id === id)).filter(Boolean);
 
-  roots.forEach((root, i) => {
-    root.spawnAt = i * 0.02;
-    root.finishAt = 0.82 + i * 0.08;
+  // All roots start at t=0 and share the same growth window — outward growth
+  // is then driven by the wavefront (segmentDrawLengthOutward), which depends
+  // only on distance from origin, so every wing reaches its edge together
+  // instead of one direction lapping another.
+  roots.forEach((root) => {
+    root.spawnAt = 0;
+    root.finishAt = 0.86;
   });
 
   function scheduleChildren(parent) {
@@ -320,6 +398,13 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
 
     let armPoints = traceArtArm(cluster, bright, w, h, origin, armVisited, preferAngle);
     if (armPoints.length < 2) continue;
+
+    // Anchor every trunk at origin (the chip center) so the strike grows
+    // from the centre outward. K-means cluster centroids land 7–8 viewBox
+    // units off-origin, which made the SW/SE swaths look like they were
+    // rooted slightly off-centre and "spreading" into the quadrant from
+    // a mid-quadrant point — read as "painted from the edge" by the user.
+    armPoints = anchorArmAtOrigin(armPoints, origin, rng);
 
     armPoints = extendPathToEdge(armPoints, rng, BETSPOT_CLIP);
     armPoints = simplifyPoints(armPoints, 0.6);
@@ -395,6 +480,40 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
         }
       }
     }
+  }
+
+  // Fill in any wing directions the art clusters didn't cover (SE/SW are typically
+  // missing because the 3 detected clusters point NW/NE/S). Without these synthetic
+  // trunks, the SE/SW wings only appear once sub-branches catch up — making the
+  // strike feel like it sweeps clockwise instead of radiating outward.
+  const rootAngles = segments
+    .filter((s) => s.depth === 0 && s.points.length >= 2)
+    .map((s) => {
+      const tip = s.points[s.points.length - 1];
+      return Math.atan2(tip.y - origin.y, tip.x - origin.x);
+    });
+
+  for (const wanted of WING_ANGLES) {
+    const covered = rootAngles.some(
+      (a) => angularDist(a, wanted) < WING_COVERED_THRESHOLD
+    );
+    if (covered) continue;
+
+    const armPoints = syntheticArmToEdge(origin, wanted, rng);
+    if (!armPoints || armPoints.length < 2) continue;
+
+    const arm = makeSegment(
+      nextId++,
+      0,
+      simplifyPoints(armPoints, 0.6),
+      null,
+      0,
+      0,
+      clusters.length, // synthetic cluster id (past the real ones)
+    );
+    segments.push(arm);
+    rootIds.push(arm.id);
+    rootAngles.push(wanted);
   }
 
   assignTimings(segments, rootIds);

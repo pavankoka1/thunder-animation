@@ -145,36 +145,18 @@ void main() {
   vec2 frag = gl_FragCoord.xy;
   vec2 uv = frag / u_resolution;
 
-  float d = boltDistance(frag);
-  float flicker =
-    0.88 +
-    0.12 * sin(u_time * 22.0 + frag.x * 0.09 + frag.y * 0.06) *
-    sin(u_time * 31.0 + frag.y * 0.11);
-  float core = exp(-d / u_coreFalloff) * u_coreAlpha * flicker;
-  float glow = exp(-(d * d) / (2.0 * u_glowSigma * u_glowSigma)) * u_glowAlpha;
-  float outer = exp(-(d * d) / (2.0 * u_outerSigma * u_outerSigma)) * u_outerAlpha;
-
   vec4 plasma = texture(u_plasmaTex, vec2(uv.x, 1.0 - uv.y));
 
   if (u_useMask > 0.5) {
-    // Art mode — texture is frame + screen(plasma) baked in 2D (matches home canvas).
-    vec3 col = plasma.rgb;
-
-    if (u_strikeActive > 0.5) {
-      float glowFade = 1.0 - smoothstep(0.15, 0.55, length(col));
-      vec3 bolt = vec3(0.0);
-      bolt += vec3(${ART_STRIKE_BOLT_STYLE.outer.join(", ")}) * outer * glowFade;
-      bolt += vec3(${ART_STRIKE_BOLT_STYLE.glow.join(", ")}) * glow * glowFade;
-      bolt += vec3(${ART_STRIKE_BOLT_STYLE.core.join(", ")}) * core * glowFade;
-      bolt *= u_layerOpacity;
-      col = screenBlend(col, bolt);
-    }
-
-    out_FragColor = vec4(min(col, vec3(1.0)), 1.0);
+    // Art mode — texture already contains frame + masked plasma reveal baked in 2D.
+    // Mirror the home canvas exactly: no extra SDF bolt overlay (was making bolts read
+    // too thick inside the betspot during strike).
+    out_FragColor = vec4(min(plasma.rgb, vec3(1.0)), 1.0);
     return;
   }
 
   // Procedural — gradient betspot + SDF bolt glow (opaque).
+  float d = boltDistance(frag);
   vec3 bg = betspotBackground(uv);
   float procFlicker = 0.97 + 0.03 * sin(u_time * 14.0 + frag.y * 0.04);
   float pCore = exp(-d / u_coreFalloff) * u_coreAlpha * procFlicker;
