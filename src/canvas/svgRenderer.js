@@ -7,7 +7,8 @@ export async function loadCanvasAssets() {
   return loadPlasmaAssets(SVG_PATHS.plasma);
 }
 
-export function setupCanvas(canvas, frame, scale, dpr) {
+/** Set canvas CSS + backing size only — safe to call before WebGL context creation. */
+export function sizeCanvas(canvas, frame, scale, dpr) {
   const cssWidth = frame.width * scale;
   const cssHeight = frame.height * scale;
 
@@ -15,6 +16,12 @@ export function setupCanvas(canvas, frame, scale, dpr) {
   canvas.style.height = `${cssHeight}px`;
   canvas.width = Math.round(cssWidth * dpr);
   canvas.height = Math.round(cssHeight * dpr);
+
+  return { width: canvas.width, height: canvas.height };
+}
+
+export function setupCanvas(canvas, frame, scale, dpr) {
+  sizeCanvas(canvas, frame, scale, dpr);
 
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D context unavailable");

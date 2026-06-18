@@ -43,10 +43,10 @@ function orderedSegments(tree) {
   return tree.segmentsByDepth ?? tree.segments;
 }
 
-/** Opaque white core — guarantees full-strength plasma at chip on first frames. */
+/** Opaque white core — small chip spark on first frames only. */
 function paintSolidCenterCore(mctx, origin, progress) {
   const p = Math.max(0, Math.min(1, progress));
-  const r = 10 + p * 12;
+  const r = 5 + p * 7;
 
   mctx.save();
   roundedRectPath(mctx, BETSPOT_CLIP);
@@ -139,10 +139,100 @@ export function paintPlasmaStatic(ctx, plasmaLayer) {
 }
 
 /**
+ * Brief electric flash that rides on top of the masked plasma. Real lightning
+ * has an essentially instantaneous attack then a longer fade — modeled here
+ * as a sharp ramp to peak in the first ~5% of the timeline, then a smooth
+ * decay back to zero by ~p=0.45.
+ */
+export function thunderFlashStrength(progress) {
+  const p = Math.max(0, Math.min(1, progress));
+  if (p >= 0.45) return 0;
+  if (p <= 0.05) return (p / 0.05) ** 0.7;
+  const decay = (p - 0.05) / 0.4;
+  return (1 - decay) ** 1.4;
+}
+
+function paintThunderFlash(ctx, tree, progress, boltT, origin) {
+  ctx.save();
+  clipBetspot(ctx);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  for (const segment of orderedSegments(tree)) {
+    // Per-segment LOCAL progress, normalised by this segment's growth
+    // window. Each bolt has its own attack/decay flash that fires when
+    // the bolt itself spawns — gives the "multiple thunders falling
+    // sequentially" feel instead of one global flash everywhere.
+    const window = Math.max(1e-5, segment.finishAt - segment.spawnAt);
+    const localP = (progress - segment.spawnAt) / window;
+    const strength = thunderFlashStrength(localP);
+    if (strength < 0.01) continue;
+
+    const drawLen = segmentDrawLengthOutward(segment, boltT, progress, origin);
+    if (drawLen <= 0) continue;
+
+    // Find the tip point (last point we'd draw to).
+    let tipX = segment.points[0].x;
+    let tipY = segment.points[0].y;
+
+    ctx.beginPath();
+    ctx.moveTo(segment.points[0].x, segment.points[0].y);
+    for (let i = 1; i < segment.points.length; i += 1) {
+      if (segment.cumLengths[i] <= drawLen) {
+        ctx.lineTo(segment.points[i].x, segment.points[i].y);
+        tipX = segment.points[i].x;
+        tipY = segment.points[i].y;
+      } else {
+        const seg0 = segment.points[i - 1];
+        const seg1 = segment.points[i];
+        const t = (drawLen - segment.cumLengths[i - 1])
+          / Math.max(1e-5, segment.cumLengths[i] - segment.cumLengths[i - 1]);
+        tipX = seg0.x + (seg1.x - seg0.x) * t;
+        tipY = seg0.y + (seg1.y - seg0.y) * t;
+        ctx.lineTo(tipX, tipY);
+        break;
+      }
+    }
+
+    // Linear gradient stroke: bright hot at origin, fading out toward the tip.
+    // This gives the strike the "intensity concentrated at the source"
+    // character of real thunder — the strike erupts from the chip and
+    // tapers to a thin sharp line at the edge.
+    const startX = segment.points[0].x;
+    const startY = segment.points[0].y;
+    const haloGrd = ctx.createLinearGradient(startX, startY, tipX, tipY);
+    haloGrd.addColorStop(0, `rgba(180, 235, 255, ${0.85 * strength})`);
+    haloGrd.addColorStop(0.45, `rgba(150, 225, 255, ${0.45 * strength})`);
+    haloGrd.addColorStop(1, `rgba(120, 200, 255, 0)`);
+
+    ctx.strokeStyle = haloGrd;
+    ctx.shadowColor = "#aef";
+    ctx.shadowBlur = 0.55;
+    ctx.lineWidth = 0.5;
+    ctx.stroke();
+
+    const coreGrd = ctx.createLinearGradient(startX, startY, tipX, tipY);
+    coreGrd.addColorStop(0, `rgba(255, 255, 255, ${1.0 * strength})`);
+    coreGrd.addColorStop(0.5, `rgba(255, 255, 255, ${0.7 * strength})`);
+    coreGrd.addColorStop(1, `rgba(255, 255, 255, ${0.2 * strength})`);
+    ctx.strokeStyle = coreGrd;
+    ctx.shadowBlur = 0;
+    ctx.lineWidth = 0.2;
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+/**
  * Reveal plasma by extending trunks + branches outward from center bulk.
  * progress = 1 matches Show pattern exactly.
+ * @param {object} [opts]
+ * @param {boolean} [opts.skipFlash] - skip the 2D thunder-flash overlay
+ *   (WebGL renders sparks in its own shader, doesn't want a doubled flash)
  */
-export function paintPlasmaStrike(ctx, plasmaLayer, tree, progress) {
+export function paintPlasmaStrike(ctx, plasmaLayer, tree, progress, opts = {}) {
   const { width, height } = SVG_FRAME;
   ctx.clearRect(0, 0, width, height);
 
@@ -155,6 +245,8 @@ export function paintPlasmaStrike(ctx, plasmaLayer, tree, progress) {
   }
 
   const mask = paintMask(tree, progress);
+  const origin = tree.origin ?? THUNDER_ORIGIN;
+  const boltT = boltGrowthProgress(progress);
 
   ctx.save();
   clipBetspot(ctx);
@@ -163,6 +255,14 @@ export function paintPlasmaStrike(ctx, plasmaLayer, tree, progress) {
   ctx.drawImage(mask, 0, 0, width, height);
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();
+
+  if (!opts.skipFlash) {
+    // Thunder attack flash — 2D path for the canvas route. WebGL renders
+    // this in the fragment shader (see thunderRenderer) for sharper sparks
+    // and to keep the GPU paths as the source of truth, so it passes
+    // skipFlash:true here.
+    paintThunderFlash(ctx, tree, progress, boltT, origin);
+  }
 }
 
 /** Debug overlay: path skeleton on top of strike. */

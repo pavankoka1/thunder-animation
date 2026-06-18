@@ -6,6 +6,7 @@ import {
   generateBoltTree,
 } from "./generateBoltPath.js";
 import { boltGrowthProgress } from "../canvas/plasma/extractArtPaths.js";
+import { thunderFlashStrength } from "../canvas/plasma/paintStrike.js";
 import {
   ART_STRIKE_BOLT_STYLE,
   PROCEDURAL_BOLT_STYLE,
@@ -95,6 +96,68 @@ float readPathReveal(int pathIdx) {
   return texture(u_revealTex, vec2(u, 0.5)).r;
 }
 
+float readPathSpark(int pathIdx) {
+  // Per-path spark intensity (0..1) packed in revealTex.g — computed on the
+  // CPU each frame from each path's local strike progress (thunderFlashStrength).
+  float u = (float(pathIdx) + 0.5) / float(${MAX_PATHS});
+  return texture(u_revealTex, vec2(u, 0.5)).g;
+}
+
+/**
+ * Per-path bright thunder spark. For each path with non-zero per-frame
+ * spark intensity, computes the SDF distance from this fragment to the
+ * currently-revealed portion of that path, then accumulates a hot white
+ * core + tight cyan halo modulated by the per-path intensity.
+ *
+ * This replaces the 2D paintThunderFlash overlay used by the canvas route —
+ * a real per-pixel SDF is far thinner and brighter than any 2D stroke, and
+ * it keeps the GPU paths as the single source of truth for bolt geometry.
+ */
+vec3 computeSpark(vec2 p, float coreSigmaPx, float haloSigmaPx) {
+  vec3 total = vec3(0.0);
+
+  for (int path = 0; path < ${MAX_PATHS}; path++) {
+    if (path >= u_numPaths) break;
+
+    float intensity = readPathSpark(path);
+    if (intensity < 0.01) continue;
+
+    int ptCount = readPathPointCount(path);
+    int segCount = ptCount - 1;
+    if (segCount <= 0) continue;
+    float pathReveal = readPathReveal(path);
+    if (pathReveal <= 0.0) continue;
+
+    float pathMinDist = 1e9;
+    for (int i = 0; i < ${MAX_POINTS_PER_PATH - 1}; i++) {
+      if (i >= segCount) break;
+
+      vec2 a = readPoint(path, i);
+      vec2 b = readPoint(path, i + 1);
+      float cr0 = readCumRatio(path, i);
+      float cr1 = readCumRatio(path, i + 1);
+
+      if (cr0 >= pathReveal) continue;
+      if (cr1 <= pathReveal) {
+        pathMinDist = min(pathMinDist, distToSeg(p, a, b));
+      } else {
+        float t = (pathReveal - cr0) / max(cr1 - cr0, 1e-5);
+        vec2 tip = mix(a, b, clamp(t, 0.0, 1.0));
+        pathMinDist = min(pathMinDist, distToSeg(p, a, tip));
+      }
+    }
+
+    // Hot white core (very tight) + cyan halo (slightly broader).
+    float core = exp(-(pathMinDist * pathMinDist) / (2.0 * coreSigmaPx * coreSigmaPx));
+    float halo = exp(-(pathMinDist * pathMinDist) / (2.0 * haloSigmaPx * haloSigmaPx));
+
+    total += vec3(1.0, 1.0, 1.0) * core * intensity;
+    total += vec3(0.55, 0.85, 1.0) * halo * intensity * 0.55;
+  }
+
+  return total;
+}
+
 float boltDistance(vec2 p) {
   float d = 1e9;
 
@@ -149,8 +212,8 @@ void main() {
 
   if (u_useMask > 0.5) {
     // Art mode — texture already contains frame + masked plasma reveal baked in 2D.
-    // Mirror the home canvas exactly: no extra SDF bolt overlay (was making bolts read
-    // too thick inside the betspot during strike).
+    // Opaque blit (normal blend on canvas) keeps the pattern on the betspot without
+    // a purple wash from double screen compositing.
     out_FragColor = vec4(min(plasma.rgb, vec3(1.0)), 1.0);
     return;
   }
@@ -357,14 +420,32 @@ function uploadTree(gl, textures, tree, width, height) {
   return tree.paths.length;
 }
 
-function uploadRevealTex(gl, revealTex, reveals) {
+function uploadRevealTex(gl, revealTex, reveals, sparks) {
   const revealData = new Float32Array(MAX_PATHS * 4);
   for (let i = 0; i < MAX_PATHS; i += 1) {
-    revealData[i * 4] = reveals[i] ?? 0;
+    revealData[i * 4] = reveals[i] ?? 0;       // .r = reveal 0..1
+    revealData[i * 4 + 1] = sparks?.[i] ?? 0;  // .g = spark intensity 0..1
   }
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D, revealTex);
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, MAX_PATHS, 1, gl.RGBA, gl.FLOAT, revealData);
+}
+
+/**
+ * Per-path spark intensity for the current strike progress. Uses the shared
+ * thunderFlashStrength curve so the WebGL shader and the canvas-route 2D
+ * paintThunderFlash fire on identical attack/decay timings.
+ */
+function computePathSparks(strikeProgress, pathMeta, numPaths) {
+  const sparks = new Float32Array(numPaths);
+  for (let i = 0; i < numPaths; i += 1) {
+    const meta = pathMeta?.[i];
+    if (!meta) continue;
+    const window = Math.max(1e-5, (meta.finishAt ?? 1) - (meta.spawnAt ?? 0));
+    const local = (strikeProgress - (meta.spawnAt ?? 0)) / window;
+    sparks[i] = thunderFlashStrength(local);
+  }
+  return sparks;
 }
 
 function easeOutCubic(t) {
@@ -572,7 +653,12 @@ export function createThunderRenderer(canvas, params = {}) {
   function syncRevealUniforms() {
     const revealInput = isArtMode() ? boltGrowthProgress(strikeProgress) : strikeProgress;
     const reveals = computePathReveals(revealInput, tree.pathMeta, tree.paths.length);
-    uploadRevealTex(gl, revealTex, reveals);
+    // Per-path spark intensity for the shader thunder-flash layer (art mode).
+    // Procedural mode doesn't use it but uploading zeros is harmless.
+    const sparks = strikeActive
+      ? computePathSparks(strikeProgress, tree.pathMeta, tree.paths.length)
+      : new Float32Array(tree.paths.length);
+    uploadRevealTex(gl, revealTex, reveals, sparks);
     gl.uniform1f(uniforms.uStrikeActive, strikeActive ? 1 : 0);
   }
 

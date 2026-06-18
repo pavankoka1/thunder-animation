@@ -13,6 +13,35 @@ export const THUNDER_ORIGIN = {
   y: BETSPOT_CLIP.y + BETSPOT_CLIP.height / 2,
 };
 
+/** Screen-space quadrants (y grows downward). SW = left-bottom. */
+export const BETSPOT_QUADRANT = {
+  SW: 0,
+  SE: 1,
+  NW: 2,
+  NE: 3,
+};
+
+export function betspotQuadrant(x, y, origin = THUNDER_ORIGIN) {
+  const dx = x - origin.x;
+  const dy = y - origin.y;
+  if (dx <= 0 && dy >= 0) return BETSPOT_QUADRANT.SW;
+  if (dx > 0 && dy >= 0) return BETSPOT_QUADRANT.SE;
+  if (dx <= 0) return BETSPOT_QUADRANT.NW;
+  return BETSPOT_QUADRANT.NE;
+}
+
+/** True when the segment tip or most of its length sits in a quadrant. */
+export function segmentPrimarilyInQuadrant(segment, quadrant, origin = THUNDER_ORIGIN) {
+  if (!segment?.points?.length) return false;
+  const tip = segment.points[segment.points.length - 1];
+  if (betspotQuadrant(tip.x, tip.y, origin) === quadrant) return true;
+  let hits = 0;
+  for (const p of segment.points) {
+    if (betspotQuadrant(p.x, p.y, origin) === quadrant) hits += 1;
+  }
+  return hits / segment.points.length >= 0.45;
+}
+
 export function roundedRectPath(ctx, clip = BETSPOT_CLIP) {
   const { x, y, width, height, radius } = clip;
   const r = Math.min(radius, width / 2, height / 2);

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createThunderRenderer } from "../webgl/thunderRenderer.js";
 import { DEFAULT_THUNDER_CONFIG } from "../webgl/thunderConfig.js";
 import { loadArtBoltTree } from "../webgl/loadArtBoltTree.js";
-import { RENDER_SCALE, SVG_FRAME, SVG_PATHS } from "../canvas/svgRenderer.js";
+import { RENDER_SCALE, sizeCanvas, SVG_FRAME, SVG_PATHS } from "../canvas/svgRenderer.js";
 
 /** Match plasma.svg viewBox (84×68) at 4× — identical to the canvas route. */
 export const BETSPOT_W = SVG_FRAME.width * RENDER_SCALE;
@@ -41,13 +41,13 @@ export default function ThunderWebGL({
         let pathTree;
         let frameImage;
 
-        const dpr = window.devicePixelRatio || 1;
-        const backingW = Math.round(BETSPOT_W * dpr);
-        const backingH = Math.round(BETSPOT_H * dpr);
-        canvas.style.width = `${BETSPOT_W}px`;
-        canvas.style.height = `${BETSPOT_H}px`;
-        canvas.width = backingW;
-        canvas.height = backingH;
+        // Must not call setupCanvas here — getContext("2d") blocks WebGL2 on the same canvas.
+        const { width: backingW, height: backingH } = sizeCanvas(
+          canvas,
+          SVG_FRAME,
+          RENDER_SCALE,
+          window.devicePixelRatio || 1
+        );
 
         if (params.boltSource === "art") {
           ({ boltTree, plasmaLayer, pathTree, frameImage } = await loadArtBoltTree(
@@ -135,6 +135,7 @@ export default function ThunderWebGL({
       style={{ width: BETSPOT_W, height: BETSPOT_H }}
       aria-label="WebGL betspot"
     >
+      {/* Art mode bakes the frame into the WebGL composite — no separate bg layer. */}
       {!isArt && showFrame ? (
         <div
           className="thunder-webgl-stage__bg"
@@ -153,10 +154,9 @@ export default function ThunderWebGL({
 
       <div className="thunder-webgl-stage__canvas-wrap">
         <canvas
+          key={params.boltSource}
           ref={canvasRef}
           className={`thunder-webgl-stage__canvas${isArt ? " thunder-webgl-stage__canvas_baked" : ""}`}
-          width={BETSPOT_W}
-          height={BETSPOT_H}
         />
         {loading && <p className="thunder-webgl__loading">Loading plasma…</p>}
         {error && <p className="thunder-webgl__error">{error}</p>}

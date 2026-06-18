@@ -139,13 +139,20 @@ export function paintCenterCausticBulk(mctx, tree, progress) {
   const origin = tree.origin ?? THUNDER_ORIGIN;
   const { clusters = [] } = tree;
   const p = Math.max(0, Math.min(1, progress));
+  // Bolts fire first — the caustic afterglow ramps in *after* the strike,
+  // not alongside it. Without this delay the central bulk renders as a
+  // wide cyan disc at frame 1, making the strike read as a frost spread
+  // instead of a sharp lightning crack.
+  const causticGate = Math.max(0, (p - 0.18) / 0.7) ** 1.4;
+  if (causticGate <= 0) return;
+  const popped = 1 - (1 - causticGate) ** 3.5;
   const { canvas: scratch, ctx: sctx } = getCausticScratch();
   const { width, height } = SVG_FRAME;
 
   sctx.clearRect(0, 0, width, height);
   sctx.drawImage(caustic, 0, 0);
 
-  const coreR = 8 + p * 14;
+  const coreR = 5 + popped * 9;
   const coreGrd = sctx.createRadialGradient(
     origin.x,
     origin.y,
@@ -163,7 +170,7 @@ export function paintCenterCausticBulk(mctx, tree, progress) {
   sctx.fillRect(BETSPOT_CLIP.x, BETSPOT_CLIP.y, BETSPOT_CLIP.width, BETSPOT_CLIP.height);
 
   for (const c of clusters) {
-    const r = 4 + p * 7;
+    const r = 4 + popped * 7;
     sctx.save();
     sctx.globalCompositeOperation = "lighter";
     const g = sctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, r);
@@ -197,8 +204,11 @@ export function paintCausticAlongPaths(mctx, pathMaskCanvas, tree, progress, pat
   const { canvas: scratch, ctx: sctx } = getCausticScratch();
   const { width, height } = SVG_FRAME;
 
+  // Tight halo early (sharp bolt) widening into a softer caustic spread
+  // late as the strike settles into the final pattern.
+  const blurRadius = 0.35 + Math.max(0, (progress - 0.15)) * 4.0;
   bctx.clearRect(0, 0, width, height);
-  bctx.filter = `blur(${3 + progress * 5}px)`;
+  bctx.filter = `blur(${blurRadius}px)`;
   bctx.drawImage(pathMaskCanvas, 0, 0);
   bctx.filter = "none";
 

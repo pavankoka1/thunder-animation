@@ -2,33 +2,29 @@ import { pointAtLength } from "../lightning/geometry.js";
 import { PLASMA_BOLT_STYLE } from "../../webgl/plasmaBoltStyle.js";
 
 export const PATH_REVEAL = {
-  radiusByDepth: [
-    PLASMA_BOLT_STYLE.revealRadius * 0.68,
-    PLASMA_BOLT_STYLE.revealRadius * 0.52,
-    PLASMA_BOLT_STYLE.revealRadius * 0.38,
-  ],
-  glowBlurMax: 2.8,
+  // Hairline crack — uniform thin width for every bolt and fork.
+  uniformWidth: 0.55,
+  glowBlurMax: 0.7,
 };
 
-function revealWidth(depth, progress) {
-  const d = Math.min(depth ?? 0, PATH_REVEAL.radiusByDepth.length - 1);
-  const base = PATH_REVEAL.radiusByDepth[d];
-  const t = Math.max(0, Math.min(1, progress));
-  const scale = 0.38 + 0.62 * t ** 1.15;
-  return base * scale;
+function revealWidth() {
+  return PATH_REVEAL.uniformWidth;
 }
 
 function glowForProgress(progress) {
   const t = Math.max(0, Math.min(1, progress));
-  return PATH_REVEAL.glowBlurMax * (0.45 + 0.55 * t);
+  // Tight halo throughout — slight attack boost at strike onset, no big
+  // soft cloud that reads as "frost".
+  const attack = 1 - Math.min(1, t * 3.5);
+  return PATH_REVEAL.glowBlurMax * (0.5 + 0.4 * t) + attack * 1.0;
 }
 
-/** Reveal plasma along a growing path — soft glow swath for visible caustics under screen blend. */
-export function strokePartialReveal(ctx, points, cumLengths, drawLength, depth, progress) {
+/** Reveal plasma along a growing path — uniform thin lightning swath. */
+export function strokePartialReveal(ctx, points, cumLengths, drawLength, _depth, progress) {
   if (drawLength <= 0 || points.length < 2) return;
 
   const tip = pointAtLength(points, cumLengths, drawLength);
-  const width = revealWidth(depth, progress);
+  const width = revealWidth();
 
   ctx.beginPath();
   ctx.moveTo(points[0].x, points[0].y);
@@ -50,7 +46,7 @@ export function strokePartialReveal(ctx, points, cumLengths, drawLength, depth, 
   ctx.lineWidth = width;
   ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.lineWidth = Math.max(1.4, width * 0.48);
+  ctx.lineWidth = Math.max(0.28, width * 0.38);
   ctx.stroke();
   ctx.restore();
 }

@@ -82,7 +82,7 @@ export function paintPlasmaComposite(
   pathTree,
   progress,
   mode = "strike",
-  appearance = {}
+  appearance = {},
 ) {
   const { canvas, scale } = surface;
   const ctx = canvas.getContext("2d");
@@ -95,11 +95,6 @@ export function paintPlasmaComposite(
   drawFrameBase(ctx, frameImage, appearance);
 
   if (mode !== "idle" && progress > 0 && plasmaLayer) {
-    // Render reveal on a scratch sized to backing pixels so masking + upscale
-    // happen at full resolution — matches the home canvas's setupCanvas()
-    // DPR-aware transform. A small (viewBox-sized) scratch would mask the
-    // plasma at 84×68 first and then bilinear-blur the result on copy, which
-    // is what made bolts read "thick" in WebGL.
     const { canvas: scratch, ctx: scratchCtx } = getPlasmaScratch(scale);
     paintPlasmaLayerOnly(scratchCtx, plasmaLayer, pathTree, progress, mode);
 
@@ -107,7 +102,6 @@ export function paintPlasmaComposite(
     roundedRectPath(ctx, BETSPOT_CLIP);
     ctx.clip();
     ctx.globalCompositeOperation = "screen";
-    // Scratch is already at backing resolution — draw 1:1 (no upscale here).
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(scratch, 0, 0);
     ctx.setTransform(scale, 0, 0, scale, 0, 0);

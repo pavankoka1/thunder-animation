@@ -1,4 +1,4 @@
-import { BETSPOT_CLIP, THUNDER_ORIGIN } from "../betspotGeometry.js";
+import { BETSPOT_CLIP, BETSPOT_QUADRANT, THUNDER_ORIGIN, betspotQuadrant, segmentPrimarilyInQuadrant } from "../betspotGeometry.js";
 import { createRng, randRange } from "../lightning/random.js";
 import { cumulativeLengths, subdivideSegment } from "../lightning/geometry.js";
 import { buildCausticCanvas, buildSkeletonCanvas } from "./skeletonMask.js";
@@ -349,16 +349,25 @@ function makeSegment(id, depth, points, parentId, attachRatio, strokeWidth, clus
   };
 }
 
-function assignTimings(segments, rootIds) {
+function assignTimings(segments, rootIds, origin = THUNDER_ORIGIN) {
   const roots = rootIds.map((id) => segments.find((s) => s.id === id)).filter(Boolean);
+  const isSw = (seg) => segmentPrimarilyInQuadrant(seg, BETSPOT_QUADRANT.SW, origin);
 
-  // All roots start at t=0 and share the same growth window — outward growth
-  // is then driven by the wavefront (segmentDrawLengthOutward), which depends
-  // only on distance from origin, so every wing reaches its edge together
-  // instead of one direction lapping another.
-  roots.forEach((root) => {
-    root.spawnAt = 0;
-    root.finishAt = 0.86;
+  const swRoots = roots.filter(isSw);
+  const otherRoots = roots.filter((r) => !isSw(r));
+
+  const swStagger = 0.035;
+  const rootGrowth = 0.24;
+
+  swRoots.forEach((root, i) => {
+    root.spawnAt = i * swStagger;
+    root.finishAt = Math.min(root.spawnAt + rootGrowth, 0.94);
+  });
+
+  const otherBase = swRoots.length ? swRoots[swRoots.length - 1].spawnAt + 0.06 : 0;
+  otherRoots.forEach((root, i) => {
+    root.spawnAt = otherBase + i * 0.09;
+    root.finishAt = Math.min(root.spawnAt + 0.22, 0.94);
   });
 
   function scheduleChildren(parent) {
@@ -368,10 +377,19 @@ function assignTimings(segments, rootIds) {
 
     for (const child of kids) {
       const window = parent.finishAt - parent.spawnAt;
-      // Branches closer to center spawn first; edge branches follow the outward wave
-      child.spawnAt = parent.spawnAt + child.attachRatio ** 1.2 * window * 0.86;
-      const growth = 0.07 + child.depth * 0.018 + Math.min(child.length * 0.016, 0.12);
-      child.finishAt = Math.min(child.spawnAt + growth, 0.97);
+      const inSw = isSw(child);
+
+      if (inSw) {
+        // SW forks get the same bolt treatment as the hero trunk — longer
+        // growth window and earlier spawn so they read as full lightning.
+        child.spawnAt = parent.spawnAt + child.attachRatio * window * 0.5;
+        const growth = 0.2 + Math.min(child.length * 0.022, 0.1);
+        child.finishAt = Math.min(child.spawnAt + growth, 0.97);
+      } else {
+        child.spawnAt = parent.spawnAt + child.attachRatio ** 1.2 * window * 0.82;
+        const growth = 0.06 + child.depth * 0.014 + Math.min(child.length * 0.014, 0.1);
+        child.finishAt = Math.min(child.spawnAt + growth, 0.97);
+      }
       scheduleChildren(child);
     }
   }
@@ -379,9 +397,46 @@ function assignTimings(segments, rootIds) {
   for (const root of roots) scheduleChildren(root);
 }
 
+/** Build a zigzag side branch from a trunk attach point in a given direction. */
+function syntheticSideBranch(from, angle, lengthTarget, rng, clip = BETSPOT_CLIP) {
+  // Cap branch length to the betspot edge so it doesn't shoot off-canvas.
+  const edge = rayToBetspotEdge(from.x, from.y, angle, clip);
+  const maxLen = dist(from, edge);
+  const len = Math.max(2.5, Math.min(lengthTarget, maxLen * 0.85));
+  if (len < 2) return null;
+  const tipX = from.x + Math.cos(angle) * len;
+  const tipY = from.y + Math.sin(angle) * len;
+  return subdivideSegment(
+    from.x,
+    from.y,
+    tipX,
+    tipY,
+    Math.max(2, Math.round(len * 0.55)),
+    0.85,
+    rng,
+  );
+}
+
+/** Higher score = bolt tip reaches further into the left-bottom (SW) quadrant. */
+function swQuadrantScore(entry, origin) {
+  const tip = entry.points[entry.points.length - 1];
+  const dx = tip.x - origin.x;
+  const dy = tip.y - origin.y;
+  if (dx > 0 || dy < 0) return -1;
+  return Math.hypot(-dx, dy);
+}
+
 /**
- * Extract the 3 center thunder clusters from plasma art, trace their lines outward,
- * add sub-branches along bright pixels, extend toward betspot edges.
+ * Five straight (jittered) lightning bolts from chip origin to wing edges.
+ * Each bolt grows a couple of organic perpendicular side-branches so the
+ * pattern isn't just five clean radial lines — it reads as forked lightning.
+ *
+ * Replaces the prior K-means-driven trunk generation: those trunks
+ * meandered ~2x longer than straight-line distance, so as the wavefront
+ * expanded, the "SW trunk" was actually painting mid-path points in
+ * unrelated quadrants and leaving SW under-revealed. This guarantees
+ * every wing gets a clean center→edge ray that the wavefront walks at
+ * the same rate as the others.
  */
 export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_ORIGIN) {
   const { bright, w, h } = buildBrightMask(plasmaImage, frame);
@@ -389,134 +444,158 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
   const rng = createRng(42);
   const segments = [];
   let nextId = 0;
-  const rootIds = [];
+  // `pendingRoots` collects {points, clusterId} entries from both wing and
+  // art generation. We commit them to `segments` in an interleaved order so
+  // staggered spawnAt assignment in assignTimings produces an alternating
+  // wing/art arrival pattern (no all-wings-first-then-all-art clumping).
+  const wingRoots = [];
+  const artRoots = [];
   const armVisited = new Set();
 
+  // --- 1. Synthetic radial wing bolts (one per wing direction) -----------
+  WING_ANGLES.forEach((wingAngle, idx) => {
+    const armPoints = syntheticArmToEdge(origin, wingAngle, rng);
+    if (!armPoints || armPoints.length < 2) return;
+    wingRoots.push({
+      points: simplifyPoints(armPoints, 0.55),
+      clusterId: idx,
+      kind: "wing",
+      wingAngle,
+    });
+  });
+
+  // --- 2. K-means art trunks (walk bright-filament chains) ---------------
+  // These trace through the dense filament regions of plasma.svg — that's
+  // where the SW/SE quadrants get their "clutter" of fine detail. Without
+  // them the synthetic radials alone leave those areas under-revealed.
   for (let ci = 0; ci < clusters.length; ci += 1) {
     const cluster = clusters[ci];
     const preferAngle = Math.atan2(cluster.y - origin.y, cluster.x - origin.x);
 
     let armPoints = traceArtArm(cluster, bright, w, h, origin, armVisited, preferAngle);
     if (armPoints.length < 2) continue;
-
-    // Anchor every trunk at origin (the chip center) so the strike grows
-    // from the centre outward. K-means cluster centroids land 7–8 viewBox
-    // units off-origin, which made the SW/SE swaths look like they were
-    // rooted slightly off-centre and "spreading" into the quadrant from
-    // a mid-quadrant point — read as "painted from the edge" by the user.
     armPoints = anchorArmAtOrigin(armPoints, origin, rng);
-
     armPoints = extendPathToEdge(armPoints, rng, BETSPOT_CLIP);
     armPoints = simplifyPoints(armPoints, 0.6);
 
-    const arm = makeSegment(
-      nextId++,
-      0,
-      armPoints,
-      null,
-      0,
-      0,
-      ci
-    );
+    artRoots.push({
+      points: armPoints,
+      clusterId: 10 + ci, // 10+ to distinguish from wing cluster ids
+      kind: "art",
+      rawTrace: armPoints, // for sub-branch generation below
+    });
+  }
+
+  // --- 3. Compose final root order — all SW-reaching roots first, then the rest.
+  const allRoots = [...wingRoots, ...artRoots];
+  const swRoots = allRoots
+    .filter((r) => swQuadrantScore(r, origin) > 0)
+    .sort((a, b) => swQuadrantScore(b, origin) - swQuadrantScore(a, origin));
+  const otherRoots = allRoots.filter((r) => swQuadrantScore(r, origin) <= 0);
+  const restWing = otherRoots.filter((r) => r.kind === "wing");
+  const restArt = otherRoots.filter((r) => r.kind === "art");
+  const interleaved = [...swRoots];
+  const maxLen = Math.max(restWing.length, restArt.length);
+  for (let i = 0; i < maxLen; i += 1) {
+    if (i < restWing.length) interleaved.push(restWing[i]);
+    if (i < restArt.length) interleaved.push(restArt[i]);
+  }
+
+  const rootIds = [];
+  for (const entry of interleaved) {
+    const arm = makeSegment(nextId++, 0, entry.points, null, 0, 0, entry.clusterId);
     segments.push(arm);
     rootIds.push(arm.id);
 
-    const armCum = cumulativeLengths(armPoints);
-    const branchVisited = new Set(armPoints.map((p) => key(p.x, p.y)));
+    if (entry.kind === "wing") {
+      // Perpendicular forks for the synthetic radials.
+      const armCum = cumulativeLengths(entry.points);
+      const armLen = arm.length;
+      const isSwWing = entry.wingAngle > Math.PI * 0.45 && entry.wingAngle < Math.PI * 0.95;
+      const branchSpots = isSwWing ? [0.28, 0.44, 0.58, 0.72] : [0.32, 0.55, 0.74];
+      for (const spotRatio of branchSpots) {
+        let attachIdx = 1;
+        for (let i = 1; i < entry.points.length - 1; i += 1) {
+          if (armCum[i] / armLen >= spotRatio) {
+            attachIdx = i;
+            break;
+          }
+        }
+        const attach = entry.points[attachIdx];
+        const perpSign = rng() > 0.5 ? 1 : -1;
+        const forkAngle = entry.wingAngle + perpSign * (Math.PI * (0.32 + rng() * 0.12));
+        const forkLen = (armLen - armCum[attachIdx]) * (0.45 + rng() * 0.25);
+        const forkPts = syntheticSideBranch(attach, forkAngle, forkLen, rng);
+        if (!forkPts || forkPts.length < 2) continue;
 
-    for (let i = 1; i < armPoints.length - 1; i += 1) {
-      const cur = armPoints[i];
-      const onPath = new Set(armPoints.map((p) => key(p.x, p.y)));
-
-      const side = getNeighbors(cur.x, cur.y, w, h, bright).filter(
-        (n) => !onPath.has(key(n.x, n.y)) && !branchVisited.has(key(n.x, n.y))
-      );
-
-      for (const s of side.slice(0, 2)) {
-        const branchPoints = traceSideBranch(cur, s, bright, w, h, origin, branchVisited);
-        if (branchPoints.length < 2) continue;
-
-        const simplified = simplifyPoints(branchPoints, 0.55);
-        if (simplified.length < 2) continue;
-
-        const attachRatio = armCum[i] / arm.length;
-        const branchId = nextId++;
         segments.push(
           makeSegment(
-            branchId,
+            nextId++,
             1,
-            simplified,
+            simplifyPoints(forkPts, 0.5),
             arm.id,
-            attachRatio,
+            armCum[attachIdx] / armLen,
             0,
-            ci
-          )
+            entry.clusterId,
+          ),
         );
+      }
+    } else {
+      // Bright-pixel side branches for the art trunks — these are what
+      // give SW/SE the dense filament "clutter".
+      const armCum = cumulativeLengths(entry.points);
+      const armLen = arm.length;
+      const branchVisited = new Set(entry.points.map((p) => key(p.x, p.y)));
 
-        for (let j = 2; j < simplified.length - 1; j += 2) {
-          const bCur = simplified[j];
-          const bOnPath = new Set(simplified.map((p) => key(p.x, p.y)));
-          const bSide = getNeighbors(bCur.x, bCur.y, w, h, bright).filter(
-            (n) => !bOnPath.has(key(n.x, n.y)) && !branchVisited.has(key(n.x, n.y))
+      for (let i = 1; i < entry.points.length - 1; i += 1) {
+        const cur = entry.points[i];
+        if (typeof cur.x !== "number" || typeof cur.y !== "number") continue;
+        const cx = Math.round(cur.x);
+        const cy = Math.round(cur.y);
+        if (cx < 0 || cy < 0 || cx >= w || cy >= h) continue;
+
+        const onPath = new Set(entry.points.map((p) => key(p.x, p.y)));
+        const attachInSw = betspotQuadrant(cur.x, cur.y, origin) === BETSPOT_QUADRANT.SW;
+        const side = getNeighbors(cx, cy, w, h, bright)
+          .filter((n) => !onPath.has(key(n.x, n.y)) && !branchVisited.has(key(n.x, n.y)))
+          .sort((a, b) => {
+            const aSw = betspotQuadrant(a.x, a.y, origin) === BETSPOT_QUADRANT.SW ? 1 : 0;
+            const bSw = betspotQuadrant(b.x, b.y, origin) === BETSPOT_QUADRANT.SW ? 1 : 0;
+            return bSw - aSw;
+          });
+
+        for (const s of side.slice(0, attachInSw ? 3 : 2)) {
+          const branchPoints = traceSideBranch(
+            { x: cx, y: cy },
+            s,
+            bright,
+            w,
+            h,
+            origin,
+            branchVisited,
           );
+          if (branchPoints.length < 2) continue;
 
-          if (!bSide.length || rng() > 0.5) continue;
+          const simplified = simplifyPoints(branchPoints, 0.55);
+          if (simplified.length < 2) continue;
 
-          const sub = traceSideBranch(bCur, bSide[0], bright, w, h, origin, branchVisited, 25);
-          if (sub.length < 2) continue;
-
-          const subCum = cumulativeLengths(simplified);
           segments.push(
             makeSegment(
               nextId++,
-              2,
-              simplifyPoints(sub, 0.5),
-              branchId,
-              subCum[j] / subCum[subCum.length - 1],
+              1,
+              simplified,
+              arm.id,
+              armCum[i] / armLen,
               0,
-              ci
-            )
+              entry.clusterId,
+            ),
           );
         }
       }
     }
   }
 
-  // Fill in any wing directions the art clusters didn't cover (SE/SW are typically
-  // missing because the 3 detected clusters point NW/NE/S). Without these synthetic
-  // trunks, the SE/SW wings only appear once sub-branches catch up — making the
-  // strike feel like it sweeps clockwise instead of radiating outward.
-  const rootAngles = segments
-    .filter((s) => s.depth === 0 && s.points.length >= 2)
-    .map((s) => {
-      const tip = s.points[s.points.length - 1];
-      return Math.atan2(tip.y - origin.y, tip.x - origin.x);
-    });
-
-  for (const wanted of WING_ANGLES) {
-    const covered = rootAngles.some(
-      (a) => angularDist(a, wanted) < WING_COVERED_THRESHOLD
-    );
-    if (covered) continue;
-
-    const armPoints = syntheticArmToEdge(origin, wanted, rng);
-    if (!armPoints || armPoints.length < 2) continue;
-
-    const arm = makeSegment(
-      nextId++,
-      0,
-      simplifyPoints(armPoints, 0.6),
-      null,
-      0,
-      0,
-      clusters.length, // synthetic cluster id (past the real ones)
-    );
-    segments.push(arm);
-    rootIds.push(arm.id);
-    rootAngles.push(wanted);
-  }
-
-  assignTimings(segments, rootIds);
+  assignTimings(segments, rootIds, origin);
 
   const segmentsByDepth = [...segments].sort((a, b) => a.depth - b.depth);
 
