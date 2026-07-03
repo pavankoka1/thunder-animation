@@ -32,3 +32,88 @@ export function coverRect(frameW, frameH, targetW, targetH) {
   const sh = targetH / s;
   return { sx: (frameW - sw) / 2, sy: (frameH - sh) / 2, sw, sh };
 }
+
+let sheetCache = null;
+
+/**
+ * Load the sprite sheet once. count derived from the sheet height.
+ * @returns {Promise<{img:HTMLImageElement, frameW:number, frameH:number, count:number}>}
+ */
+export async function loadPlasmaSheet(url) {
+  if (sheetCache) return sheetCache;
+  const img = await loadImage(url);
+  const count = Math.round(img.naturalHeight / FRAME_H);
+  sheetCache = { img, frameW: FRAME_W, frameH: FRAME_H, count };
+  return sheetCache;
+}
+
+function makeCanvas(w, h) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return c;
+}
+
+/** Radial white→transparent vignette so energy fades at the body edges. */
+function makeVignette(w, h) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext("2d");
+  const cx = w * 0.5;
+  const cy = h * 0.5;
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(cx, cy));
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.6, "rgba(255,255,255,0.92)");
+  g.addColorStop(0.85, "rgba(255,255,255,0.5)");
+  g.addColorStop(1, "rgba(255,255,255,0.1)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  return c;
+}
+
+/**
+ * One-time asset bundle: cover-fit rect, a reusable offscreen frame canvas, and
+ * the cached edge-fade vignette.
+ */
+export function initFlipbook(sheet, targetW, targetH) {
+  return {
+    sheet,
+    targetW,
+    targetH,
+    rect: coverRect(sheet.frameW, sheet.frameH, targetW, targetH),
+    frame: makeCanvas(targetW, targetH),
+    vignette: makeVignette(targetW, targetH),
+  };
+}
+
+/**
+ * Paint the current flipbook frame into ctx: cover-fit the sprite sub-rect onto
+ * the offscreen, mask with the vignette, blit. Same signature as the old
+ * paintEnergyFrame so the component rAF loop is unchanged.
+ */
+export function paintFlipbookFrame(ctx, assets, tMs) {
+  if (!assets) return;
+  const { sheet, targetW, targetH, rect, frame, vignette } = assets;
+  const idx = frameAt(tMs, FPS, sheet.count);
+
+  const fctx = frame.getContext("2d");
+  fctx.globalCompositeOperation = "source-over";
+  fctx.globalAlpha = 1;
+  fctx.clearRect(0, 0, targetW, targetH);
+  fctx.drawImage(
+    sheet.img,
+    rect.sx,
+    idx * sheet.frameH + rect.sy,
+    rect.sw,
+    rect.sh,
+    0,
+    0,
+    targetW,
+    targetH,
+  );
+  fctx.globalCompositeOperation = "destination-in";
+  fctx.drawImage(vignette, 0, 0);
+  fctx.globalCompositeOperation = "source-over";
+
+  ctx.clearRect(0, 0, targetW, targetH);
+  ctx.drawImage(frame, 0, 0);
+}
