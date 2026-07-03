@@ -107,7 +107,7 @@ export function paintFlipbookFrame(ctx, assets, tMs) {
     0,
     0,
     targetW,
-    targetH,
+    targetH
   );
   fctx.globalCompositeOperation = "destination-in";
   fctx.drawImage(vignette, 0, 0);

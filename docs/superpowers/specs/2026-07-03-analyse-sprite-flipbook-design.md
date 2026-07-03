@@ -32,7 +32,7 @@ filament topology.
   re-encoded to a single quality-90 lossy WebP (~1.4 MB; noisy plasma hides
   lossy artifacts) to keep the page light. Encoded with Pillow (`sips` lacks
   WebP export on this machine): `Image.open(png).save(out, "WEBP", quality=90,
-  method=6)`. Frame geometry is unchanged (400×8450, 26×325).
+method=6)`. Frame geometry is unchanged (400×8450, 26×325).
 - Constants: `FRAME_W = 400`, `FRAME_H = 325`, `COUNT = round(img.height / 325)`.
 
 ## Architecture
@@ -44,7 +44,7 @@ filament topology.
 - `coverRect(frameW, frameH, targetW, targetH)` (pure) → the source sub-rect
   within a single frame that cover-fits the target: scale `s = max(tw/fw, th/fh)`,
   crop the centred band. For 400×325 → 438×204: `{ sx: 0, sy: ≈69.3, sw: 400,
-  sh: ≈186.3 }`. Unit-tested.
+sh: ≈186.3 }`. Unit-tested.
 - `frameAt(tMs, fps, count)` (pure) → `Math.floor((tMs / 1000) * fps) % count`,
   wrapping/looping. Unit-tested.
 - `initFlipbook(sheet, targetW, targetH)` → precomputes `coverRect`, an offscreen

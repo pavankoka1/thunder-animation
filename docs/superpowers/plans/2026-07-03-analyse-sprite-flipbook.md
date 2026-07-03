@@ -21,6 +21,7 @@
 ### Task 1: Encode + vendor the sprite sheet as WebP
 
 **Files:**
+
 - Create: `scripts/encode-plasma-frames.py`
 - Create: `public/analyse/plasma-frames.webp` (build output, committed)
 
@@ -56,6 +57,7 @@ mkdir -p public/analyse
   "$HOME/Downloads/400px width energy flames inside the spot.png" \
   public/analyse/plasma-frames.webp
 ```
+
 Expected: `wrote public/analyse/plasma-frames.webp  frames=26`, file ~1.4 MB.
 (If that venv is gone, `python3 -m pip install pillow` then rerun.)
 
@@ -64,6 +66,7 @@ Expected: `wrote public/analyse/plasma-frames.webp  frames=26`, file ~1.4 MB.
 ```bash
 /private/tmp/claude-502/-Users-pavankurmarao-k-Documents-personal-koka-lab/1a70a8e9-77bd-45e3-8ac0-178c6ab392ed/scratchpad/venv/bin/python -c "from PIL import Image; im=Image.open('public/analyse/plasma-frames.webp'); print(im.size); assert im.size==(400,8450)"
 ```
+
 Expected: `(400, 8450)`.
 
 - [ ] **Step 4: Commit**
@@ -78,6 +81,7 @@ git commit -m "chore(analyse): vendor plasma sprite sheet as webp"
 ### Task 2: Pure flipbook math (`frameAt`, `coverRect`)
 
 **Files:**
+
 - Create: `src/analyse/plasmaFlipbook.js` (pure functions only this task)
 - Test: `src/analyse/__tests__/plasmaFlipbook.test.js`
 
@@ -196,6 +200,7 @@ git commit -m "feat(analyse): flipbook frame maths (frameAt, coverRect)"
 ### Task 3: Flipbook loader + painter (canvas glue)
 
 **Files:**
+
 - Modify: `src/analyse/plasmaFlipbook.js` (append)
 
 No unit test — canvas composition, verified in the browser in Task 4.
@@ -280,7 +285,7 @@ export function paintFlipbookFrame(ctx, assets, tMs) {
     0,
     0,
     targetW,
-    targetH,
+    targetH
   );
   fctx.globalCompositeOperation = "destination-in";
   fctx.drawImage(vignette, 0, 0);
@@ -308,6 +313,7 @@ git commit -m "feat(analyse): sprite-sheet loader, vignette, frame painter"
 ### Task 4: Rewire `AnalyseBetspot.jsx` + page copy
 
 **Files:**
+
 - Modify: `src/analyse/AnalyseBetspot.jsx`
 - Modify: `src/pages/AnalysePage.jsx`
 
@@ -333,13 +339,13 @@ import { initFlipbook, loadPlasmaSheet, paintFlipbookFrame } from "./plasmaFlipb
 Remove the `bakedRef` line
 
 ```js
-  const bakedRef = useRef(null);
+const bakedRef = useRef(null);
 ```
 
 Add, just below the `layerStyle` helper (module scope, above the component) or as a const inside the component near `stageW`:
 
 ```js
-  const SHEET_URL = "/analyse/plasma-frames.webp";
+const SHEET_URL = "/analyse/plasma-frames.webp";
 ```
 
 - [ ] **Step 3: Replace the bake effect body**
@@ -347,28 +353,28 @@ Add, just below the `layerStyle` helper (module scope, above the component) or a
 Replace the async IIFE inside the first `useEffect` (the `loadPlasmaFilaments`/`generateEnergyCanvas` block) with:
 
 ```js
-    // Load the plasma sprite sheet once, size the canvas to the body, and paint
-    // frame 0 as the static image. The reveal loop then flips through frames.
-    (async () => {
-      try {
-        const sheet = await loadPlasmaSheet(SHEET_URL);
-        if (cancelled) return;
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+// Load the plasma sprite sheet once, size the canvas to the body, and paint
+// frame 0 as the static image. The reveal loop then flips through frames.
+(async () => {
+  try {
+    const sheet = await loadPlasmaSheet(SHEET_URL);
+    if (cancelled) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-        const w = BODY.width * STAGE.scale;
-        const h = BODY.height * STAGE.scale;
-        canvas.width = w;
-        canvas.height = h;
+    const w = BODY.width * STAGE.scale;
+    const h = BODY.height * STAGE.scale;
+    canvas.width = w;
+    canvas.height = h;
 
-        const assets = initFlipbook(sheet, w, h);
-        motionRef.current = assets;
-        paintFlipbookFrame(canvas.getContext("2d"), assets, 0);
-        setReady(true);
-      } catch (err) {
-        console.error("Failed to load plasma sprite sheet", err);
-      }
-    })();
+    const assets = initFlipbook(sheet, w, h);
+    motionRef.current = assets;
+    paintFlipbookFrame(canvas.getContext("2d"), assets, 0);
+    setReady(true);
+  } catch (err) {
+    console.error("Failed to load plasma sprite sheet", err);
+  }
+})();
 ```
 
 - [ ] **Step 4: Point the rAF loop and cleanup at the flipbook**
@@ -376,38 +382,38 @@ Replace the async IIFE inside the first `useEffect` (the `loadPlasmaFilaments`/`
 In the ambient-motion `useEffect`, change the frame call
 
 ```js
-    const frame = (now) => {
-      paintEnergyFrame(ctx, assets, now - start);
-      raf = requestAnimationFrame(frame);
-    };
+const frame = (now) => {
+  paintEnergyFrame(ctx, assets, now - start);
+  raf = requestAnimationFrame(frame);
+};
 ```
 
 to
 
 ```js
-    const frame = (now) => {
-      paintFlipbookFrame(ctx, assets, now - start);
-      raf = requestAnimationFrame(frame);
-    };
+const frame = (now) => {
+  paintFlipbookFrame(ctx, assets, now - start);
+  raf = requestAnimationFrame(frame);
+};
 ```
 
 and replace the cleanup's static-restore block
 
 ```js
-      const baked = bakedRef.current;
-      if (baked) {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = 1;
-        ctx.filter = "none";
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(baked, 0, 0);
-      }
+const baked = bakedRef.current;
+if (baked) {
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = 1;
+  ctx.filter = "none";
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(baked, 0, 0);
+}
 ```
 
 with
 
 ```js
-      if (assets) paintFlipbookFrame(ctx, assets, 0);
+if (assets) paintFlipbookFrame(ctx, assets, 0);
 ```
 
 (`assets` is already captured at the top of this effect as `motionRef.current`.)
@@ -428,12 +434,15 @@ Blue body and outer glow are pure CSS. The inner energy is a looping sequence of
 ```bash
 npm test && npm run build
 ```
+
 Expected: passing tests; build succeeds.
 
 ```bash
 npm run dev
 ```
+
 Open `/analyse`, click "Reveal energy", and confirm:
+
 1. Energy reveals and the plasma paths visibly reform (branches change), looping ~2.2 s.
 2. Hide → static frame 0; re-reveal restarts.
 3. Console clean.
@@ -450,6 +459,7 @@ git commit -m "feat(analyse): play the plasma sprite sheet as a flipbook"
 ### Task 5: Remove the dead bake + warp modules
 
 **Files:**
+
 - Delete: `src/analyse/energyHubs.js`, `src/analyse/__tests__/energyHubs.test.js`
 - Delete: `src/analyse/energyMotion.js`, `src/analyse/__tests__/energyMotion.test.js`
 - Delete: `src/analyse/cellularEnergy.js`
@@ -512,6 +522,7 @@ for dy in range(-6,7,2):
 print("resid under best shift (rms):", round(best**0.5,1), "-> >4 means reforming, not a hover/shift")
 PY
 ```
+
 Expected: residual clearly above a few lum levels — confirms topology change, the exact thing the warp failed.
 
 - [ ] **Step 2: Behavioural checks**
