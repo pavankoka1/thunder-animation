@@ -4,12 +4,14 @@
  * Consumes the web canvas already produced by `loadPlasmaFilaments` (white
  * filaments on transparent, energy-canvas space) and returns polyline
  * segments plus the anchored hub positions the reference SVG phases showed.
- * Reuses the exported, frame-agnostic skeleton helpers from the home page's
- * extractor — no shared code is modified.
+ * Reuses the exported, frame-agnostic tracing helpers from the home page's
+ * extractor — no shared code is modified. Skeletonization is local
+ * (Zhang–Suen thinning): the home extractor's ridge skeleton fragments the
+ * web's thick glow mask into confetti, while thinning preserves connectivity
+ * by construction.
  */
 
 import {
-  buildSkeletonFromMask,
   chainSegments,
   densifySegmentPoints,
   pathsToSegments,
@@ -22,6 +24,10 @@ const MASK_ALPHA = 0.45;
 const MIN_SEGMENT_LEN = 6;
 /** Vertex spacing after densify (energy-canvas px) — writhe needs interior vertices. */
 const DENSIFY_SPACING = 2;
+/** Leaf spurs shorter than this are trimmed off the thinned skeleton. */
+const SPUR_MIN_LEN = 5;
+/** Hub maxima this close to the border are ignored (texture edges glow). */
+const HUB_MARGIN_FRAC = 0.08;
 
 function boxBlurPass(src, dst, w, h, r, horizontal) {
   const lineCount = horizontal ? h : w;
@@ -63,6 +69,17 @@ export function detectHubs(alpha, w, h, count = 3, minSep = Math.round(Math.min(
   }
 
   const work = Float32Array.from(a);
+  // Texture edges glow — never let a hub land in the border band.
+  const mx = Math.round(w * HUB_MARGIN_FRAC);
+  const my = Math.round(h * HUB_MARGIN_FRAC);
+  for (let yy = 0; yy < h; yy += 1) {
+    if (yy < my || yy >= h - my) {
+      work.fill(0, yy * w, (yy + 1) * w);
+    } else {
+      work.fill(0, yy * w, yy * w + mx);
+      work.fill(0, yy * w + w - mx, (yy + 1) * w);
+    }
+  }
   const hubs = [];
   for (let k = 0; k < count; k += 1) {
     let bi = -1;
@@ -88,14 +105,118 @@ export function detectHubs(alpha, w, h, count = 3, minSep = Math.round(Math.min(
 }
 
 /**
- * Skeletonize a binary mask and trace it into densified polyline segments.
- * Pure (no DOM) — points stay in mask/energy-canvas pixel coordinates.
+ * Zhang–Suen thinning: erode the mask to a 1px skeleton without ever breaking
+ * connectivity. The shared ridge skeleton fragments thick glow masks; this
+ * cannot, which is why the analyse extractor uses it instead.
+ */
+export function thinMask(mask, w, h) {
+  const m = Uint8Array.from(mask);
+  let changed = true;
+  let guard = 0;
+
+  while (changed && guard < 100) {
+    guard += 1;
+    changed = false;
+    for (let phase = 0; phase < 2; phase += 1) {
+      const del = [];
+      for (let y = 1; y < h - 1; y += 1) {
+        for (let x = 1; x < w - 1; x += 1) {
+          const i = y * w + x;
+          if (!m[i]) continue;
+          // clockwise neighbours from north
+          const p = [
+            m[i - w], m[i - w + 1], m[i + 1], m[i + w + 1],
+            m[i + w], m[i + w - 1], m[i - 1], m[i - w - 1],
+          ];
+          const on = p[0] + p[1] + p[2] + p[3] + p[4] + p[5] + p[6] + p[7];
+          if (on < 2 || on > 6) continue;
+          let transitions = 0;
+          for (let k = 0; k < 8; k += 1) {
+            if (!p[k] && p[(k + 1) % 8]) transitions += 1;
+          }
+          if (transitions !== 1) continue;
+          if (phase === 0) {
+            if (p[0] && p[2] && p[4]) continue;
+            if (p[2] && p[4] && p[6]) continue;
+          } else {
+            if (p[0] && p[2] && p[6]) continue;
+            if (p[0] && p[4] && p[6]) continue;
+          }
+          del.push(i);
+        }
+      }
+      if (del.length) {
+        changed = true;
+        for (const i of del) m[i] = 0;
+      }
+    }
+  }
+  return m;
+}
+
+function skelNeighbors(m, w, h, x, y, out) {
+  out.length = 0;
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      if (!dx && !dy) continue;
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx >= 0 && ny >= 0 && nx < w && ny < h && m[ny * w + nx]) out.push([nx, ny]);
+    }
+  }
+  return out;
+}
+
+/** Trim leaf spurs shorter than minLen off a thinned skeleton (junctions kept). */
+export function pruneLeafSpurs(skel, w, h, minLen = SPUR_MIN_LEN) {
+  const m = Uint8Array.from(skel);
+  const nbrs = [];
+
+  for (let pass = 0; pass < 6; pass += 1) {
+    let removed = 0;
+    for (let y = 0; y < h; y += 1) {
+      for (let x = 0; x < w; x += 1) {
+        if (!m[y * w + x] || skelNeighbors(m, w, h, x, y, nbrs).length !== 1) continue;
+
+        const chain = [[x, y]];
+        let px = x;
+        let py = y;
+        let [cx, cy] = nbrs[0];
+        while (chain.length < minLen) {
+          const nn = skelNeighbors(m, w, h, cx, cy, nbrs).filter(
+            ([nx, ny]) => nx !== px || ny !== py,
+          );
+          chain.push([cx, cy]);
+          if (nn.length !== 1) break;
+          px = cx;
+          py = cy;
+          [cx, cy] = nn[0];
+        }
+        const tip = chain[chain.length - 1];
+        const tipDegree = skelNeighbors(m, w, h, tip[0], tip[1], nbrs).length;
+        if (chain.length < minLen && tipDegree !== 1) {
+          for (const [qx, qy] of chain.slice(0, -1)) {
+            m[qy * w + qx] = 0;
+            removed += 1;
+          }
+        }
+      }
+    }
+    if (!removed) break;
+  }
+  return m;
+}
+
+/**
+ * Skeletonize a binary mask (thin + spur-trim) and trace it into densified
+ * polyline segments. Pure (no DOM) — points stay in mask/energy-canvas
+ * pixel coordinates.
  *
  * @returns {Promise<Array<{id:number, points:Array<{x,y}>, length:number}>>}
  */
 export async function segmentsFromMask(mask, w, h) {
-  const { skel, w: sw, h: sh, mapPoint } = await buildSkeletonFromMask(mask, w, h);
-  const raw = traceSkeletonPaths(skel, sw, sh, mapPoint, 3);
+  const skel = pruneLeafSpurs(thinMask(mask, w, h), w, h);
+  const raw = traceSkeletonPaths(skel, w, h, (p) => p, 3);
   let segments = chainSegments(pathsToSegments(raw, 1, 0));
 
   return segments

@@ -215,6 +215,16 @@ git commit -m "feat(analyse): vitest infra + hub detection for filament motion"
 > mask was changed to a 3px-thick mesh (rectangle outline + cross) which the
 > pipeline handles as expected. Shared code untouched. Follow-up: confirm real
 > web segment count during Task 5/6 browser verification.
+>
+> **Deviation 2 (2026-07-03, Task 5 verification):** on the real web canvas the
+> shared ridge skeleton fragmented the thick glow mask into confetti (4 usable
+> segments, 28px total — invisible motion). Replaced `buildSkeletonFromMask`
+> with an analyse-local Zhang–Suen `thinMask` + correct `pruneLeafSpurs`
+> (connectivity-preserving; 448 segments, ~5,100px, 49ms one-time). Shared
+> tracing helpers still reused; shared code still untouched. `detectHubs` also
+> gained a border-margin exclusion (texture edges glow, which produced a
+> garbage corner hub). The originally-planned 1px-cross test now passes and was
+> restored alongside the mesh test.
 
 **Files:**
 - Modify: `src/analyse/filamentSegments.js` (append)

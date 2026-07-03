@@ -36,6 +36,19 @@ describe("detectHubs", () => {
     const hubs = detectHubs(new Float32Array(40 * 40), 40, 40, 3, 10);
     expect(hubs.length).toBeLessThanOrEqual(1);
   });
+
+  it("ignores maxima hugging the border", () => {
+    const w = 100;
+    const h = 60;
+    const alpha = new Float32Array(w * h);
+    addBlob(alpha, w, h, 2, 2, 3, 1.0); // bright corner speck — should be excluded
+    addBlob(alpha, w, h, 50, 30, 10, 0.7);
+
+    const hubs = detectHubs(alpha, w, h, 2, 20);
+
+    expect(hubs.length).toBeGreaterThanOrEqual(1);
+    expect(Math.hypot(hubs[0].x - 50, hubs[0].y - 30)).toBeLessThan(8);
+  });
 });
 
 describe("segmentsFromMask", () => {
@@ -82,6 +95,20 @@ describe("segmentsFromMask", () => {
     }
     // ids are dense and unique
     expect(new Set(segments.map((s) => s.id)).size).toBe(segments.length);
+  });
+
+  it("keeps thin 1px strokes intact (connectivity-preserving thinning)", async () => {
+    const w = 60;
+    const h = 40;
+    const mask = new Uint8Array(w * h);
+    for (let x = 5; x <= 55; x += 1) mask[20 * w + x] = 1; // horizontal hairline
+    for (let y = 5; y <= 35; y += 1) mask[y * w + 30] = 1; // vertical hairline
+
+    const segments = await segmentsFromMask(mask, w, h);
+
+    expect(segments.length).toBeGreaterThanOrEqual(2);
+    const totalLength = segments.reduce((n, s) => n + s.length, 0);
+    expect(totalLength).toBeGreaterThan(40);
   });
 });
 
