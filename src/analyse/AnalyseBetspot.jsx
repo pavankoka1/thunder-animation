@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { generateEnergyCanvas } from "./cellularEnergy.js";
-import { initWarpAssets, paintEnergyFrame } from "./energyMotion.js";
-import { canvasToField, detectHubs } from "./energyHubs.js";
-import { loadPlasmaFilaments } from "./plasmaFilaments.js";
+import { initFlipbook, loadPlasmaSheet, paintFlipbookFrame } from "./plasmaFlipbook.js";
 import { BODY, CHIP, ENERGY_OPACITY, LAYER_URLS, STAGE, TOP_BAR } from "./spec.js";
+
+const SHEET_URL = "/analyse/plasma-frames.webp";
 
 function layerStyle(box, scale = STAGE.scale) {
   return {
@@ -16,7 +15,6 @@ function layerStyle(box, scale = STAGE.scale) {
 
 export default function AnalyseBetspot() {
   const canvasRef = useRef(null);
-  const bakedRef = useRef(null);
   const motionRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [revealed, setRevealed] = useState(false);
@@ -37,31 +35,26 @@ export default function AnalyseBetspot() {
   useEffect(() => {
     let cancelled = false;
 
-    // Bake the plasma filament web once, then warp those baked pixels each
-    // frame. The reveal itself is a pure CSS opacity transition after this
-    // bake; the motion resamples the same canvas, adding no new content.
+    // Load the plasma sprite sheet once, size the canvas to the body, and paint
+    // frame 0 as the static image. The reveal loop then flips through frames.
     (async () => {
       try {
-        const data = await loadPlasmaFilaments(BODY.width, BODY.height, 3);
+        const sheet = await loadPlasmaSheet(SHEET_URL);
         if (cancelled) return;
         const canvas = canvasRef.current;
         if (!canvas) return;
 
-        const baked = generateEnergyCanvas(BODY.width, BODY.height, 3, data);
-        canvas.width = baked.width;
-        canvas.height = baked.height;
-        canvas.getContext("2d").drawImage(baked, 0, 0);
-        bakedRef.current = baked;
-        try {
-          const { field, w, h } = canvasToField(baked);
-          const hubs = detectHubs(field, w, h);
-          motionRef.current = initWarpAssets(baked, hubs);
-        } catch (err) {
-          console.warn("Warp assets unavailable — energy stays static", err);
-        }
+        const w = BODY.width * STAGE.scale;
+        const h = BODY.height * STAGE.scale;
+        canvas.width = w;
+        canvas.height = h;
+
+        const assets = initFlipbook(sheet, w, h);
+        motionRef.current = assets;
+        paintFlipbookFrame(canvas.getContext("2d"), assets, 0);
         setReady(true);
       } catch (err) {
-        console.error("Failed to build inner energy", err);
+        console.error("Failed to load plasma sprite sheet", err);
       }
     })();
 
@@ -83,7 +76,7 @@ export default function AnalyseBetspot() {
     let raf = 0;
 
     const frame = (now) => {
-      paintEnergyFrame(ctx, assets, now - start);
+      paintFlipbookFrame(ctx, assets, now - start);
       raf = requestAnimationFrame(frame);
     };
 
@@ -98,14 +91,7 @@ export default function AnalyseBetspot() {
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onVisibility);
-      const baked = bakedRef.current;
-      if (baked) {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = 1;
-        ctx.filter = "none";
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(baked, 0, 0);
-      }
+      if (assets) paintFlipbookFrame(ctx, assets, 0);
     };
   }, [revealed, ready, reducedMotion]);
 

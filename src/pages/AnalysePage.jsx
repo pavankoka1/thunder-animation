@@ -10,13 +10,10 @@ export default function AnalysePage() {
         </a>
         <h1 className="analyse-page__title">Analyse — inner energy</h1>
         <p className="analyse-page__subtitle">
-          Blue body and outer glow are pure CSS. Inner energy is the plasma texture's
-          cellular filament web — detected with the same bright-filament test as the path
-          code (web kept, purple cells dropped), then recoloured violet→white and radially
-          masked so it's brightest at the centre and fades to faint wisps at the edges,
-          like a strike spreading outward. Screen-blended so the blue body shows through
-          the cells. Click to toggle. Once revealed, the painted web itself slowly drifts
-          and breathes in place, anchored at three bright hubs.
+          Blue body and outer glow are pure CSS. The inner energy is a looping sequence of
+          pre-rendered plasma frames — a 26-frame sprite sheet played as a flipbook, so the
+          filament paths continuously reform. Screen-blended over the body and edge-faded so
+          it reads as energy contained in the spot. Click to toggle.
         </p>
       </header>
 
