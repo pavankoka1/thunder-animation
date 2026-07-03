@@ -36,15 +36,15 @@ for dy in range(-6, 7, 2):
 print(f"drift: best shift = ({best[0]}, {best[1]})")
 assert best[:2] == (0, 0), "FAIL: web is drifting"
 
-# 2. Re-routing: bright pixels partially swapped — neither frozen nor replaced
-ma, mb = a > 120, b > 120
-iou = np.logical_and(ma, mb).sum() / max(1, np.logical_or(ma, mb).sum())
-print(f"bright IoU = {iou:.3f} (target 0.35-0.95)")
-assert 0.35 < iou < 0.95, "FAIL: turnover outside expected band"
+# 2. Motion present: the pattern actually moved between frames, but subtly
+d = np.abs(a - b)
+moved = float((d > 8).mean())
+print(f"moved fraction (|Δlum|>8) = {moved:.3f} (target 0.02-0.60)")
+assert 0.02 < moved < 0.60, "FAIL: too little or too much motion"
 
-# 3. Energy conserved: bright area roughly constant (redistribution, not pulsing)
-ra, rb = ma.mean(), mb.mean()
+# 3. Energy conserved: bright area roughly constant (warp moves, doesn't pulse)
+ra, rb = (a > 120).mean(), (b > 120).mean()
 print(f"bright area: {ra:.4f} vs {rb:.4f}")
 assert abs(ra - rb) / max(ra, rb) < 0.25, "FAIL: field is pulsing globally"
 
-print("OK: anchored, re-routing, energy-conserving")
+print("OK: anchored, moving, energy-conserving")
