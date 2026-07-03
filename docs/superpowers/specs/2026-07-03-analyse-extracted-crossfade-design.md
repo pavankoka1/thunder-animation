@@ -57,6 +57,7 @@ knobs.
 ### `src/analyse/plasmaPaths.js` (new)
 
 **Pure (unit-tested):**
+
 - `coverTransform(fw, fh, tw, th)` → `{ scale, offX, offY }` mapping a frame-space
   point to the cover-fit target: `X = (x-offX)·scale`, `Y = (y-offY)·scale`. For
   400×325 → 438×204: `scale ≈ 1.095`, `offX 0`, `offY ≈ 69.3`.
@@ -65,13 +66,14 @@ knobs.
   `frac = p−floor(p)`. Wraps seamlessly.
 
 **Canvas (browser-verified):**
+
 - `loadPaths(url)` → fetch + cache the JSON.
 - `initPaths(json, tw, th)` → cover-transform every polyline once and build **one
   `Path2D` per keyframe** (all that keyframe's segments in a single path); also a
   reusable offscreen canvas and the radial edge-fade vignette. Returns
   `{ tw, th, keyframes:Path2D[], count, offscreen, vignette }`.
 - `paintPathsFrame(ctx, assets, tMs)` → `{k0,k1,frac} = keyframeAt(tMs, LOOP_MS,
-  count)`; clear offscreen (`lighter`); stroke keyframe `k0` at opacity `1−frac`
+count)`; clear offscreen (`lighter`); stroke keyframe `k0` at opacity `1−frac`
   and `k1` at `frac`, each in three passes — violet halo (wide), magenta mid,
   white-hot core; `destination-in` the vignette; blit to `ctx`. `LOOP_MS ≈ 6000`
   (tunable). Same signature as the prior painters, so the component rAF loop is

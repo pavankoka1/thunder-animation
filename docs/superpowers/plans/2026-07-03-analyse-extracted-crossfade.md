@@ -19,6 +19,7 @@
 ### Task 1: Extract keyframe polylines → JSON
 
 **Files:**
+
 - Create: `scripts/extract-plasma-paths.py`
 - Create: `public/analyse/plasma-paths.json`
 
@@ -118,6 +119,7 @@ mkdir -p public/analyse
 VENV=/private/tmp/claude-502/-Users-pavankurmarao-k-Documents-personal-koka-lab/1a70a8e9-77bd-45e3-8ac0-178c6ab392ed/scratchpad/venv/bin/python
 $VENV scripts/extract-plasma-paths.py "$HOME/Downloads/400px width energy flames inside the spot.png" public/analyse/plasma-paths.json
 ```
+
 Expected: `wrote … keyframes=10 segs=~24000`, file ~500 KB.
 
 - [ ] **Step 3: Sanity-check the JSON shape**
@@ -125,6 +127,7 @@ Expected: `wrote … keyframes=10 segs=~24000`, file ~500 KB.
 ```bash
 node -e "const d=require('./public/analyse/plasma-paths.json'); console.log('w',d.w,'h',d.h,'frames',d.frames.length,'segs0',d.frames[0].length, 'pt0', d.frames[0][0][0])"
 ```
+
 Expected: `w 400 h 325 frames 10 segs0 ~2400 pt0 [x,y]`.
 
 - [ ] **Step 4: Commit**
@@ -139,6 +142,7 @@ git commit -m "chore(analyse): extract plasma web keyframes to vector json"
 ### Task 2: Pure math (`coverTransform`, `keyframeAt`)
 
 **Files:**
+
 - Create: `src/analyse/plasmaPaths.js` (pure functions this task)
 - Test: `src/analyse/__tests__/plasmaPaths.test.js`
 
@@ -236,6 +240,7 @@ git commit -m "feat(analyse): crossfade math (coverTransform, keyframeAt)"
 ### Task 3: Canvas painter (load, init, paint)
 
 **Files:**
+
 - Modify: `src/analyse/plasmaPaths.js` (append)
 
 No unit test — canvas composition, browser-verified in Task 4.
@@ -370,6 +375,7 @@ git commit -m "feat(analyse): keyframe crossfade painter with glow strokes"
 ### Task 4: Rewire `AnalyseBetspot.jsx` + copy
 
 **Files:**
+
 - Modify: `src/analyse/AnalyseBetspot.jsx`, `src/pages/AnalysePage.jsx`
 
 - [ ] **Step 1: Swap imports** — replace
@@ -377,11 +383,15 @@ git commit -m "feat(analyse): keyframe crossfade painter with glow strokes"
 ```js
 import { initNetwork, paintNetworkFrame } from "./plasmaNetwork.js";
 ```
+
 with
+
 ```js
 import { initPaths, loadPaths, paintPathsFrame } from "./plasmaPaths.js";
 ```
+
 and add below the imports:
+
 ```js
 const PATHS_URL = "/analyse/plasma-paths.json";
 ```
@@ -389,26 +399,26 @@ const PATHS_URL = "/analyse/plasma-paths.json";
 - [ ] **Step 2: Replace the setup IIFE body**
 
 ```js
-    (async () => {
-      try {
-        const json = await loadPaths(PATHS_URL);
-        if (cancelled) return;
-        const canvas = canvasRef.current;
-        if (!canvas) return;
+(async () => {
+  try {
+    const json = await loadPaths(PATHS_URL);
+    if (cancelled) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-        const w = BODY.width * STAGE.scale;
-        const h = BODY.height * STAGE.scale;
-        canvas.width = w;
-        canvas.height = h;
+    const w = BODY.width * STAGE.scale;
+    const h = BODY.height * STAGE.scale;
+    canvas.width = w;
+    canvas.height = h;
 
-        const assets = initPaths(json, w, h);
-        motionRef.current = assets;
-        paintPathsFrame(canvas.getContext("2d"), assets, 0);
-        setReady(true);
-      } catch (err) {
-        console.error("Failed to load plasma paths", err);
-      }
-    })();
+    const assets = initPaths(json, w, h);
+    motionRef.current = assets;
+    paintPathsFrame(canvas.getContext("2d"), assets, 0);
+    setReady(true);
+  } catch (err) {
+    console.error("Failed to load plasma paths", err);
+  }
+})();
 ```
 
 - [ ] **Step 3: Point rAF + cleanup at the new painter** — `paintNetworkFrame(ctx, assets, now - start)` → `paintPathsFrame(...)`; `if (assets) paintNetworkFrame(ctx, assets, 0)` → `paintPathsFrame`.
