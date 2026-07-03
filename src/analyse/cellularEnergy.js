@@ -26,8 +26,11 @@ function makeCanvas(w, h) {
   return c;
 }
 
-/** Fade the web from centre → edges so it reads as radiating from the middle. */
-function radialMaskWeb(web, w, h) {
+/**
+ * Copy the web, fading its alpha from centre → edges via the given radial
+ * stops (offset → alpha). Same texture, just a per-layer reach/thickness curve.
+ */
+function maskWeb(web, w, h, stops) {
   const c = makeCanvas(w, h);
   const ctx = c.getContext("2d");
   ctx.drawImage(web, 0, 0, w, h);
@@ -36,16 +39,31 @@ function radialMaskWeb(web, w, h) {
   const cy = h * 0.5;
   const r = Math.hypot(cx, cy);
   const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-  g.addColorStop(0, "rgba(255, 255, 255, 1)");
-  g.addColorStop(0.5, "rgba(255, 255, 255, 0.92)");
-  g.addColorStop(0.8, "rgba(255, 255, 255, 0.6)");
-  g.addColorStop(1, "rgba(255, 255, 255, 0.18)");
+  for (const [offset, alpha] of stops) {
+    g.addColorStop(offset, `rgba(255,255,255,${alpha})`);
+  }
 
   ctx.globalCompositeOperation = "destination-in";
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
   return c;
 }
+
+/** Thin white core / mid glow: nearly flat so paths run long to the edges. */
+const REACH_STOPS = [
+  [0, 1],
+  [0.5, 0.97],
+  [0.8, 0.9],
+  [1, 0.78],
+];
+
+/** Wide violet halo (thickness): fades hard toward edges so ends stay thin. */
+const THICK_STOPS = [
+  [0, 1],
+  [0.5, 0.58],
+  [0.8, 0.24],
+  [1, 0.05],
+];
 
 /** Recolour a white/alpha web to a flat colour, optionally blurred (glow). */
 function tint(web, w, h, cssColor, blurPx) {
@@ -63,10 +81,11 @@ function tint(web, w, h, cssColor, blurPx) {
 function paintCenterFlash(ctx, w, h) {
   const cx = w * 0.5;
   const cy = h * 0.5;
-  const r = Math.min(w, h) * 0.5;
+  // Small, contained hot spot — not a big central cluster.
+  const r = Math.min(w, h) * 0.28;
   const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-  g.addColorStop(0, "rgba(225, 205, 255, 0.16)");
-  g.addColorStop(0.5, "rgba(180, 110, 240, 0.08)");
+  g.addColorStop(0, "rgba(225, 205, 255, 0.14)");
+  g.addColorStop(0.5, "rgba(180, 110, 240, 0.06)");
   g.addColorStop(1, "rgba(150, 70, 225, 0)");
   ctx.globalCompositeOperation = "lighter";
   ctx.fillStyle = g;
@@ -91,20 +110,22 @@ export function generateEnergyCanvas(width, height, scale, data) {
   const web = data?.web;
   if (!web) return canvas;
 
-  const masked = radialMaskWeb(web, w, h);
+  const reachWeb = maskWeb(web, w, h, REACH_STOPS);
+  const thickWeb = maskWeb(web, w, h, THICK_STOPS);
 
-  const halo = tint(masked, w, h, VIOLET, 2.4 * scale);
-  const mid = tint(masked, w, h, MAGENTA, 0.8 * scale);
-  const core = tint(masked, w, h, WHITE, 0);
+  // Halo carries thickness (fades at edges); mid + core reach the edges.
+  const halo = tint(thickWeb, w, h, VIOLET, 2.4 * scale);
+  const mid = tint(reachWeb, w, h, MAGENTA, 0.8 * scale);
+  const core = tint(reachWeb, w, h, WHITE, 0);
 
   paintCenterFlash(ctx, w, h);
 
   ctx.globalCompositeOperation = "lighter";
   ctx.globalAlpha = 0.5;
   ctx.drawImage(halo, 0, 0);
-  ctx.globalAlpha = 0.72;
+  ctx.globalAlpha = 0.68;
   ctx.drawImage(mid, 0, 0);
-  ctx.globalAlpha = 0.82;
+  ctx.globalAlpha = 0.78;
   ctx.drawImage(core, 0, 0);
 
   ctx.globalAlpha = 1;
