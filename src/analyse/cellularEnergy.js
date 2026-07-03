@@ -15,9 +15,9 @@
  * stay transparent so the CSS blue body shows through (screen blend).
  */
 
-export const VIOLET = "rgb(150, 70, 225)";
-export const MAGENTA = "rgb(210, 120, 245)";
-export const WHITE = "rgb(250, 250, 255)";
+const VIOLET = "rgb(150, 70, 225)";
+const MAGENTA = "rgb(210, 120, 245)";
+const WHITE = "rgb(250, 250, 255)";
 
 function makeCanvas(w, h) {
   const c = document.createElement("canvas");
@@ -50,7 +50,7 @@ function maskWeb(web, w, h, stops) {
 }
 
 /** Thin white core / mid glow: nearly flat so paths run long to the edges. */
-export const REACH_STOPS = [
+const REACH_STOPS = [
   [0, 1],
   [0.5, 0.97],
   [0.8, 0.9],
@@ -58,7 +58,7 @@ export const REACH_STOPS = [
 ];
 
 /** Wide violet halo (thickness): fades hard toward edges so ends stay thin. */
-export const THICK_STOPS = [
+const THICK_STOPS = [
   [0, 1],
   [0.5, 0.58],
   [0.8, 0.24],
