@@ -26,9 +26,10 @@ export default function AnalysePage() {
             <strong>Body</strong> — CSS blue gradient + outer glow (no PNG)
           </li>
           <li>
-            <strong>Inner energy</strong> — canvas; a procedural lightning network (
-            <code>plasmaNetwork.js</code>) branching from three hubs, paths reforming each
-            life-cycle, painted with halo/mid/core glow and screen-blended over the body
+            <strong>Inner energy</strong> — canvas; the filament web extracted from the
+            artwork frames (<code>plasmaPaths.js</code>), rendered as vector branches that
+            crossfade between keyframes so the web stays present while its paths re-route,
+            painted with halo/mid/core glow and screen-blended over the body
           </li>
           <li>
             <strong>Neon border</strong> — CSS glow, same colours as{" "}
