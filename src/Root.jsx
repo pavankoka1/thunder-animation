@@ -1,11 +1,20 @@
 import App from "./App.jsx";
+import AnalysePage from "./pages/AnalysePage.jsx";
+import BetspotActivationPage from "./pages/BetspotActivationPage.jsx";
+import InnerEnergyLabPage from "./pages/InnerEnergyLabPage.jsx";
+import PathsPage from "./pages/PathsPage.jsx";
 import WebGLPage from "./pages/WebGLPage.jsx";
 
-function isWebGLRoute() {
-  const path = window.location.pathname.replace(/\/$/, "") || "/";
-  return path === "/webgl";
+function currentPath() {
+  return window.location.pathname.replace(/\/$/, "") || "/";
 }
 
 export default function Root() {
-  return isWebGLRoute() ? <WebGLPage /> : <App />;
+  const path = currentPath();
+  if (path === "/webgl") return <WebGLPage />;
+  if (path === "/analyse") return <AnalysePage />;
+  if (path === "/paths") return <PathsPage />;
+  if (path === "/betspot-activation") return <BetspotActivationPage />;
+  if (path === "/inner-energy-lab") return <InnerEnergyLabPage />;
+  return <App />;
 }

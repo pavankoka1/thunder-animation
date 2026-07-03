@@ -66,6 +66,8 @@ export default function ThunderWebGL({
 
         if (plasmaLayer && pathTree) {
           rendererRef.current.setArtAssets({ plasmaLayer, pathTree, frameImage });
+          // Art mode starts in idle (blank) — show the static plasma immediately.
+          rendererRef.current.showPattern();
         }
 
         setLoading(false);

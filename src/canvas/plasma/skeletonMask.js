@@ -1,6 +1,27 @@
 import { BETSPOT_CLIP, THUNDER_ORIGIN } from "../betspotGeometry.js";
 import { SVG_FRAME } from "../frame.js";
-import { outwardReachFront } from "./outwardSpread.js";
+import { OUTWARD_MAX_DIST, outwardReachFront } from "./outwardSpread.js";
+
+function clamp01(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function resolveOrigin(tree) {
+  const o = tree?.origin ?? THUNDER_ORIGIN;
+  const x = Number(o?.x);
+  const y = Number(o?.y);
+  return {
+    x: Number.isFinite(x) ? x : THUNDER_ORIGIN.x,
+    y: Number.isFinite(y) ? y : THUNDER_ORIGIN.y,
+  };
+}
+
+function finiteRadius(r, fallback = 1) {
+  const n = Number(r);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
 
 /**
  * All visible plasma pixels inside the betspot (caustics + filaments, not just bright lines).
@@ -73,6 +94,9 @@ let causticScratch;
 let gateCanvas;
 let gateCtx;
 let gateBucket = -1;
+let ringCanvas;
+let ringCtx;
+let ringBucket = -1;
 
 function getBlurScratch() {
   if (!blurScratch) {
@@ -94,8 +118,57 @@ function getCausticScratch() {
   return causticScratch;
 }
 
-function getOutwardGateCanvas(origin, progress) {
-  const bucket = Math.round(progress * 32);
+/**
+ * Radial RING gate — only the wave FRONT is white, both inside and outside
+ * are transparent. As `progress` advances, the bright ring sweeps outward
+ * from origin. Used to gate the thunder visual so it reads as a moving
+ * shockwave passing through the filaments, not a cloud filling a disc.
+ */
+export function getOutwardGateRing(origin, progress, halfWidth = 5.5) {
+  const bucket = Math.round(clamp01(progress) * 64);
+  if (bucket === ringBucket && ringCanvas) return ringCanvas;
+  ringBucket = bucket;
+  const p = bucket / 64;
+
+  if (!ringCanvas) {
+    ringCanvas = document.createElement("canvas");
+    ringCanvas.width = SVG_FRAME.width;
+    ringCanvas.height = SVG_FRAME.height;
+    ringCtx = ringCanvas.getContext("2d");
+  }
+
+  const { width, height } = SVG_FRAME;
+  ringCtx.clearRect(0, 0, width, height);
+
+  const front = outwardReachFront(p);
+  // Use a single radius large enough that all stops are < 1.
+  const totalR = Math.max(OUTWARD_MAX_DIST, front + halfWidth + 4);
+  const inner = Math.max(0, (front - halfWidth) / totalR);
+  const peak = Math.min(1, front / totalR);
+  const outer = Math.min(1, (front + halfWidth) / totalR);
+
+  const grd = ringCtx.createRadialGradient(
+    origin.x, origin.y, 0,
+    origin.x, origin.y, finiteRadius(totalR, 8),
+  );
+  grd.addColorStop(0, "rgba(255,255,255,0)");
+  if (inner > 0.0001) grd.addColorStop(inner, "rgba(255,255,255,0)");
+  grd.addColorStop(peak, "rgba(255,255,255,1)");
+  if (outer < 0.9999) grd.addColorStop(outer, "rgba(255,255,255,0)");
+  grd.addColorStop(1, "rgba(255,255,255,0)");
+
+  ringCtx.fillStyle = grd;
+  ringCtx.fillRect(0, 0, width, height);
+  return ringCanvas;
+}
+
+export function getOutwardGateCanvas(origin, progress) {
+  // Radial gate that expands outward from origin with the wavefront —
+  // restores the "thunder spreading" feel: caustic spread is contained
+  // to a growing disc around origin, not splashed across the whole
+  // betspot at once. Combined with segmentDrawLengthOutward, the bolt
+  // tips walk this front along their actual polyline geometry.
+  const bucket = Math.round(clamp01(progress) * 32);
   if (bucket === gateBucket && gateCanvas) return gateCanvas;
 
   gateBucket = bucket;
@@ -118,14 +191,13 @@ function getOutwardGateCanvas(origin, progress) {
     0,
     origin.x,
     origin.y,
-    front + 8
+    finiteRadius(front + 8, 8),
   );
   grd.addColorStop(0, "#fff");
   grd.addColorStop(0.88, "#fff");
   grd.addColorStop(1, "rgba(255,255,255,0)");
   gateCtx.fillStyle = grd;
   gateCtx.fillRect(0, 0, width, height);
-
   return gateCanvas;
 }
 
@@ -136,15 +208,15 @@ export function paintCenterCausticBulk(mctx, tree, progress) {
   const caustic = tree.causticCanvas;
   if (!caustic || progress <= 0) return;
 
-  const origin = tree.origin ?? THUNDER_ORIGIN;
+  const origin = resolveOrigin(tree);
   const { clusters = [] } = tree;
-  const p = Math.max(0, Math.min(1, progress));
+  const p = clamp01(progress);
   // Bolts fire first — the caustic afterglow ramps in *after* the strike,
   // not alongside it. Without this delay the central bulk renders as a
   // wide cyan disc at frame 1, making the strike read as a frost spread
   // instead of a sharp lightning crack.
   const causticGate = Math.max(0, (p - 0.18) / 0.7) ** 1.4;
-  if (causticGate <= 0) return;
+  if (!Number.isFinite(causticGate) || causticGate <= 0) return;
   const popped = 1 - (1 - causticGate) ** 3.5;
   const { canvas: scratch, ctx: sctx } = getCausticScratch();
   const { width, height } = SVG_FRAME;
@@ -152,7 +224,7 @@ export function paintCenterCausticBulk(mctx, tree, progress) {
   sctx.clearRect(0, 0, width, height);
   sctx.drawImage(caustic, 0, 0);
 
-  const coreR = 5 + popped * 9;
+  const coreR = finiteRadius(5 + popped * 9, 5);
   const coreGrd = sctx.createRadialGradient(
     origin.x,
     origin.y,
@@ -170,16 +242,20 @@ export function paintCenterCausticBulk(mctx, tree, progress) {
   sctx.fillRect(BETSPOT_CLIP.x, BETSPOT_CLIP.y, BETSPOT_CLIP.width, BETSPOT_CLIP.height);
 
   for (const c of clusters) {
-    const r = 4 + popped * 7;
+    const cx = Number(c?.x);
+    const cy = Number(c?.y);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) continue;
+
+    const r = finiteRadius(4 + popped * 7, 4);
     sctx.save();
     sctx.globalCompositeOperation = "lighter";
-    const g = sctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, r);
+    const g = sctx.createRadialGradient(cx, cy, 0, cx, cy, r);
     g.addColorStop(0, "#fff");
     g.addColorStop(0.6, "rgba(255,255,255,0.7)");
     g.addColorStop(1, "rgba(255,255,255,0)");
     sctx.fillStyle = g;
     sctx.beginPath();
-    sctx.arc(c.x, c.y, r, 0, Math.PI * 2);
+    sctx.arc(cx, cy, r, 0, Math.PI * 2);
     sctx.fill();
     sctx.restore();
   }
@@ -199,14 +275,17 @@ export function paintCausticAlongPaths(mctx, pathMaskCanvas, tree, progress, pat
   const caustic = tree.causticCanvas;
   if (!caustic || progress <= 0) return;
 
-  const origin = tree.origin ?? THUNDER_ORIGIN;
+  const origin = resolveOrigin(tree);
+  const p = clamp01(progress);
   const { canvas: blur, ctx: bctx } = getBlurScratch();
   const { canvas: scratch, ctx: sctx } = getCausticScratch();
   const { width, height } = SVG_FRAME;
 
-  // Tight halo early (sharp bolt) widening into a softer caustic spread
-  // late as the strike settles into the final pattern.
-  const blurRadius = 0.35 + Math.max(0, (progress - 0.15)) * 4.0;
+  // Very tight blur — keeps the caustic close to the bolt path instead of
+  // spreading into a wide cloud that reads as a "fat thread" around each
+  // bolt. Was 0.28 + p*3.6 (up to ~3.5 viewBox = 14 CSS px halo on each side).
+  const blurRadius = 0.2 + Math.max(0, (p - 0.2)) * 0.6;
+  const skeletonBlur = 0.15 + Math.max(0, (p - 0.2)) * 0.45;
   bctx.clearRect(0, 0, width, height);
   bctx.filter = `blur(${blurRadius}px)`;
   bctx.drawImage(pathMaskCanvas, 0, 0);
@@ -217,7 +296,7 @@ export function paintCausticAlongPaths(mctx, pathMaskCanvas, tree, progress, pat
   sctx.globalCompositeOperation = "destination-in";
   sctx.drawImage(blur, 0, 0);
   sctx.globalCompositeOperation = "destination-in";
-  sctx.drawImage(getOutwardGateCanvas(origin, progress), 0, 0);
+  sctx.drawImage(getOutwardGateCanvas(origin, p), 0, 0);
   sctx.globalCompositeOperation = "source-over";
 
   mctx.save();
@@ -227,15 +306,22 @@ export function paintCausticAlongPaths(mctx, pathMaskCanvas, tree, progress, pat
 
   const skeleton = tree.skeletonCanvas;
   if (skeleton) {
+    bctx.clearRect(0, 0, width, height);
+    bctx.filter = `blur(${skeletonBlur}px)`;
+    bctx.drawImage(pathMaskCanvas, 0, 0);
+    bctx.filter = "none";
+
     sctx.clearRect(0, 0, width, height);
     sctx.drawImage(skeleton, 0, 0);
     sctx.globalCompositeOperation = "destination-in";
     sctx.drawImage(blur, 0, 0);
     sctx.globalCompositeOperation = "destination-in";
-    sctx.drawImage(getOutwardGateCanvas(origin, progress), 0, 0);
+    sctx.drawImage(getOutwardGateCanvas(origin, p), 0, 0);
     sctx.globalCompositeOperation = "source-over";
     mctx.globalCompositeOperation = "lighter";
+    mctx.globalAlpha = 0.92 + p * 0.08;
     mctx.drawImage(scratch, 0, 0);
+    mctx.globalAlpha = 1;
   }
 
   mctx.restore();

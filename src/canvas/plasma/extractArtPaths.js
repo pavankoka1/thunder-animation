@@ -182,7 +182,7 @@ function traceArtArm(start, bright, w, h, origin, armVisited, preferAngle) {
   return simplifyPoints(points);
 }
 
-function traceSideBranch(fromPoint, firstStep, bright, w, h, origin, branchVisited, maxSteps = 40) {
+function traceSideBranch(fromPoint, firstStep, bright, w, h, origin, branchVisited, maxSteps = 52) {
   const points = [
     { x: fromPoint.x, y: fromPoint.y },
     { x: firstStep.x, y: firstStep.y },
@@ -227,7 +227,7 @@ function traceSideBranch(fromPoint, firstStep, bright, w, h, origin, branchVisit
     stepCur = best;
   }
 
-  return simplifyPoints(points, 0.55);
+  return simplifyPoints(points, 0.42);
 }
 
 function rayToBetspotEdge(ox, oy, angle, clip = BETSPOT_CLIP, pad = 3) {
@@ -386,8 +386,8 @@ function assignTimings(segments, rootIds, origin = THUNDER_ORIGIN) {
         const growth = 0.2 + Math.min(child.length * 0.022, 0.1);
         child.finishAt = Math.min(child.spawnAt + growth, 0.97);
       } else {
-        child.spawnAt = parent.spawnAt + child.attachRatio ** 1.2 * window * 0.82;
-        const growth = 0.06 + child.depth * 0.014 + Math.min(child.length * 0.014, 0.1);
+        child.spawnAt = parent.spawnAt + child.attachRatio ** 1.15 * window * 0.72;
+        const growth = 0.1 + child.depth * 0.018 + Math.min(child.length * 0.02, 0.14);
         child.finishAt = Math.min(child.spawnAt + growth, 0.97);
       }
       scheduleChildren(child);
@@ -476,7 +476,7 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
     if (armPoints.length < 2) continue;
     armPoints = anchorArmAtOrigin(armPoints, origin, rng);
     armPoints = extendPathToEdge(armPoints, rng, BETSPOT_CLIP);
-    armPoints = simplifyPoints(armPoints, 0.6);
+    armPoints = simplifyPoints(armPoints, 0.52);
 
     artRoots.push({
       points: armPoints,
@@ -512,7 +512,9 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
       const armCum = cumulativeLengths(entry.points);
       const armLen = arm.length;
       const isSwWing = entry.wingAngle > Math.PI * 0.45 && entry.wingAngle < Math.PI * 0.95;
-      const branchSpots = isSwWing ? [0.28, 0.44, 0.58, 0.72] : [0.32, 0.55, 0.74];
+      const branchSpots = isSwWing
+        ? [0.24, 0.38, 0.52, 0.66, 0.78]
+        : [0.28, 0.42, 0.56, 0.7, 0.82];
       for (const spotRatio of branchSpots) {
         let attachIdx = 1;
         for (let i = 1; i < entry.points.length - 1; i += 1) {
@@ -564,7 +566,7 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
             return bSw - aSw;
           });
 
-        for (const s of side.slice(0, attachInSw ? 3 : 2)) {
+        for (const s of side.slice(0, attachInSw ? 4 : 3)) {
           const branchPoints = traceSideBranch(
             { x: cx, y: cy },
             s,
@@ -576,7 +578,7 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
           );
           if (branchPoints.length < 2) continue;
 
-          const simplified = simplifyPoints(branchPoints, 0.55);
+          const simplified = simplifyPoints(branchPoints, 0.42);
           if (simplified.length < 2) continue;
 
           segments.push(
@@ -611,13 +613,16 @@ export function generateArtBasedLightning(plasmaImage, frame, origin = THUNDER_O
   };
 }
 
+/**
+ * Each bolt is fully drawn (full length) the instant its spawnAt is reached.
+ * There is no "growth" animation along the polyline — that's what was
+ * reading as "lines crawling/creeping". Lightning doesn't trace itself in;
+ * it strikes. The flash and afterglow overlays carry the time-based
+ * animation; the bolt geometry itself just snaps on.
+ */
 export function segmentDrawLength(segment, progress) {
   if (progress <= segment.spawnAt) return 0;
-  if (progress >= segment.finishAt) return segment.length;
-
-  const t = (progress - segment.spawnAt) / (segment.finishAt - segment.spawnAt);
-  const eased = 1 - (1 - t) ** 2.4;
-  return segment.length * eased;
+  return segment.length;
 }
 
 /** Length-weighted fraction of total path network drawn at `boltT`. */

@@ -28,6 +28,18 @@ export default function App() {
   return (
     <div className="app">
       <header className="app__header">
+        <a className="app__route-link" href="/analyse">
+          Analyse (inner energy) →
+        </a>
+        {" · "}
+        <a className="app__route-link" href="/betspot-activation">
+          Betspot activation →
+        </a>
+        {" · "}
+        <a className="app__route-link" href="/inner-energy-lab">
+          Inner energy lab →
+        </a>
+        {" · "}
         <a className="app__route-link" href="/webgl">
           WebGL experiment →
         </a>

@@ -11,8 +11,26 @@ import {
   outwardReachFront,
   segmentDrawLengthOutward,
 } from "./outwardSpread.js";
-import { paintCausticAlongPaths, paintCenterCausticBulk } from "./skeletonMask.js";
+import {
+  getOutwardGateCanvas,
+  getOutwardGateRing,
+  paintCausticAlongPaths,
+  paintCenterCausticBulk,
+} from "./skeletonMask.js";
 import { strokeDebugPath, strokePartialReveal } from "./strikeMask.js";
+
+// Scratch canvas for compositing skeleton ∩ outward gate. Sized to viewBox.
+let thunderScratchCanvas;
+let thunderScratchCtx;
+function getThunderScratch() {
+  if (!thunderScratchCanvas) {
+    thunderScratchCanvas = document.createElement("canvas");
+    thunderScratchCanvas.width = SVG_FRAME.width;
+    thunderScratchCanvas.height = SVG_FRAME.height;
+    thunderScratchCtx = thunderScratchCanvas.getContext("2d");
+  }
+  return { canvas: thunderScratchCanvas, ctx: thunderScratchCtx };
+}
 
 let maskCanvas;
 let maskCtx;
@@ -61,29 +79,36 @@ function paintSolidCenterCore(mctx, origin, progress) {
   mctx.restore();
 }
 
-function paintPathMask(tree, progress, boltT, origin) {
+/**
+ * Path mask = the REAL bright filaments from plasma.svg (the white paths
+ * the user pointed at as the lightning reference), dilated slightly for
+ * soft edges and gated by the expanding radial wave so the reveal travels
+ * outward along the filament network.
+ *
+ * Nothing is drawn in white here — this is just a mask. The plasma image
+ * underneath reveals in its NATURAL colours along the filament paths as
+ * the wave passes through.
+ */
+function paintPathMask(tree, progress, _boltT, origin) {
   const { maskCanvas: pmc, maskCtx: pmctx } = getPathMaskSurface();
   pmctx.clearRect(0, 0, SVG_FRAME.width, SVG_FRAME.height);
 
-  pmctx.save();
-  pmctx.lineCap = "round";
-  pmctx.lineJoin = "round";
-  pmctx.strokeStyle = "#fff";
-
-  for (const segment of orderedSegments(tree)) {
-    const drawLen = segmentDrawLengthOutward(segment, boltT, progress, origin);
-    if (drawLen <= 0) continue;
-    strokePartialReveal(
-      pmctx,
-      segment.points,
-      segment.cumLengths,
-      drawLen,
-      segment.depth ?? 0,
-      progress
-    );
+  const skeleton = tree?.skeletonCanvas;
+  if (!skeleton) {
+    // Fallback to disc reveal if no skeleton available.
+    pmctx.drawImage(getOutwardGateCanvas(origin, progress), 0, 0);
+    return pmc;
   }
 
+  pmctx.save();
+  pmctx.filter = "blur(0.55px)";
+  pmctx.drawImage(skeleton, 0, 0);
+  pmctx.filter = "none";
+  pmctx.globalCompositeOperation = "destination-in";
+  pmctx.drawImage(getOutwardGateCanvas(origin, progress), 0, 0);
+  pmctx.globalCompositeOperation = "source-over";
   pmctx.restore();
+
   return pmc;
 }
 
@@ -139,20 +164,64 @@ export function paintPlasmaStatic(ctx, plasmaLayer) {
 }
 
 /**
- * Brief electric flash that rides on top of the masked plasma. Real lightning
- * has an essentially instantaneous attack then a longer fade — modeled here
- * as a sharp ramp to peak in the first ~5% of the timeline, then a smooth
- * decay back to zero by ~p=0.45.
+ * The bright thunder bolt itself, visibly drawn ON each path. The bolt
+ * snaps in at full length (via segmentDrawLength) and this flash is what
+ * makes the strike read as "white thunder striking on the path". Peaks at
+ * the spawn moment then decays over ~0.65 of the segment's local window —
+ * slow enough to be SEEN, so the thunder is the primary visual element
+ * while it's alive, leaving the plasma reveal as its "mark" after fading.
  */
 export function thunderFlashStrength(progress) {
   const p = Math.max(0, Math.min(1, progress));
-  if (p >= 0.45) return 0;
-  if (p <= 0.05) return (p / 0.05) ** 0.7;
-  const decay = (p - 0.05) / 0.4;
-  return (1 - decay) ** 1.4;
+  if (p <= 0) return 0;
+  if (p >= 0.65) return 0;
+  // Instant peak, smooth decay to zero by p=0.65.
+  const decay = p / 0.65;
+  return (1 - decay) ** 1.5;
 }
 
-function paintThunderFlash(ctx, tree, progress, boltT, origin) {
+/**
+ * Slow-decay afterglow that picks up where the flash leaves off. Real thunder
+ * leaves an ionised channel that glows softly for a moment after the strike —
+ * this gives the path a "thunder passed through" feel instead of snapping
+ * straight from bright attack to static plasma. Per-segment local progress:
+ * ramps up as the flash decays (peaks around localP=0.55), holds, then fades
+ * to 0 well past the segment's growth window.
+ */
+export function thunderAfterglowStrength(localP, globalP) {
+  const lp = Math.max(0, Math.min(2.5, localP));
+  if (lp <= 0.25) return 0;
+  // Smooth onset as the flash decays — peaks ~ lp=0.55.
+  const onset = Math.min(1, (lp - 0.25) / 0.30);
+  // Long tail that fades over the rest of the segment lifetime and into
+  // the settle phase.
+  const tail = Math.exp(-Math.max(0, lp - 0.55) * 1.4);
+  // Global fade: smoothly drops the whole afterglow to zero by p=1 so the
+  // final frame matches plasma.svg exactly (no lingering glow on static).
+  const settle = 1 - Math.max(0, Math.min(1, (globalP - 0.82) / 0.18)) ** 1.2;
+  return onset * tail * settle;
+}
+
+/**
+ * Intentionally a no-op. The plasma reveal mask in paintPathMask already
+ * uses the actual bright filaments as the reveal source — there is no
+ * additional white shape drawn on top. The plasma's own colours become
+ * visible along the filament paths as the radial wave sweeps outward;
+ * that IS the lightning, no further overlay needed.
+ */
+function paintThunderFlash(_ctx, _tree, _progress, _boltT, _origin) {
+  // no-op
+}
+
+/**
+ * Draws a thin lingering bright trail along every bolt that's been struck.
+ * Each segment has its own onset/decay keyed to its local progress, plus a
+ * global "settle" multiplier that fades the whole afterglow to 0 by p≈1.
+ * Together with paintThunderFlash this gives the strike a clear phase
+ * structure: attack flash → afterglow trail → settle into static pattern.
+ */
+function paintThunderAfterglow(ctx, tree, progress, boltT, origin) {
+  if (progress >= 1) return;
   ctx.save();
   clipBetspot(ctx);
   ctx.globalCompositeOperation = "lighter";
@@ -160,19 +229,15 @@ function paintThunderFlash(ctx, tree, progress, boltT, origin) {
   ctx.lineJoin = "round";
 
   for (const segment of orderedSegments(tree)) {
-    // Per-segment LOCAL progress, normalised by this segment's growth
-    // window. Each bolt has its own attack/decay flash that fires when
-    // the bolt itself spawns — gives the "multiple thunders falling
-    // sequentially" feel instead of one global flash everywhere.
     const window = Math.max(1e-5, segment.finishAt - segment.spawnAt);
     const localP = (progress - segment.spawnAt) / window;
-    const strength = thunderFlashStrength(localP);
-    if (strength < 0.01) continue;
+    if (localP <= 0.2) continue;
+    const strength = thunderAfterglowStrength(localP, progress);
+    if (strength < 0.015) continue;
 
     const drawLen = segmentDrawLengthOutward(segment, boltT, progress, origin);
     if (drawLen <= 0) continue;
 
-    // Find the tip point (last point we'd draw to).
     let tipX = segment.points[0].x;
     let tipY = segment.points[0].y;
 
@@ -195,30 +260,28 @@ function paintThunderFlash(ctx, tree, progress, boltT, origin) {
       }
     }
 
-    // Linear gradient stroke: bright hot at origin, fading out toward the tip.
-    // This gives the strike the "intensity concentrated at the source"
-    // character of real thunder — the strike erupts from the chip and
-    // tapers to a thin sharp line at the edge.
+    // Two thin passes: a small soft halo (the ionised channel) and a hairline
+    // bright core (the residual hot filament). Kept narrow so the trail
+    // reads as lightning, not a fat thread.
     const startX = segment.points[0].x;
     const startY = segment.points[0].y;
-    const haloGrd = ctx.createLinearGradient(startX, startY, tipX, tipY);
-    haloGrd.addColorStop(0, `rgba(180, 235, 255, ${0.85 * strength})`);
-    haloGrd.addColorStop(0.45, `rgba(150, 225, 255, ${0.45 * strength})`);
-    haloGrd.addColorStop(1, `rgba(120, 200, 255, 0)`);
-
-    ctx.strokeStyle = haloGrd;
-    ctx.shadowColor = "#aef";
-    ctx.shadowBlur = 0.55;
-    ctx.lineWidth = 0.5;
+    const halo = ctx.createLinearGradient(startX, startY, tipX, tipY);
+    halo.addColorStop(0, `rgba(150, 215, 255, ${0.42 * strength})`);
+    halo.addColorStop(0.6, `rgba(170, 225, 255, ${0.30 * strength})`);
+    halo.addColorStop(1, `rgba(190, 230, 255, ${0.12 * strength})`);
+    ctx.strokeStyle = halo;
+    ctx.shadowColor = "#cef";
+    ctx.shadowBlur = 0.45;
+    ctx.lineWidth = 0.16;
     ctx.stroke();
 
-    const coreGrd = ctx.createLinearGradient(startX, startY, tipX, tipY);
-    coreGrd.addColorStop(0, `rgba(255, 255, 255, ${1.0 * strength})`);
-    coreGrd.addColorStop(0.5, `rgba(255, 255, 255, ${0.7 * strength})`);
-    coreGrd.addColorStop(1, `rgba(255, 255, 255, ${0.2 * strength})`);
-    ctx.strokeStyle = coreGrd;
+    const core = ctx.createLinearGradient(startX, startY, tipX, tipY);
+    core.addColorStop(0, `rgba(255, 255, 255, ${0.55 * strength})`);
+    core.addColorStop(0.5, `rgba(245, 252, 255, ${0.42 * strength})`);
+    core.addColorStop(1, `rgba(220, 240, 255, ${0.20 * strength})`);
+    ctx.strokeStyle = core;
     ctx.shadowBlur = 0;
-    ctx.lineWidth = 0.2;
+    ctx.lineWidth = 0.06;
     ctx.stroke();
   }
 
@@ -255,6 +318,12 @@ export function paintPlasmaStrike(ctx, plasmaLayer, tree, progress, opts = {}) {
   ctx.drawImage(mask, 0, 0, width, height);
   ctx.globalCompositeOperation = "source-over";
   ctx.restore();
+
+  // Thunder afterglow trail — soft persistent glow on each bolt that's been
+  // drawn so far. Picks up where paintThunderFlash leaves off and lingers
+  // until p≈1, giving the strike a "thunder passed through the path" feel
+  // instead of snapping straight from the attack flash to the static plasma.
+  paintThunderAfterglow(ctx, tree, progress, boltT, origin);
 
   if (!opts.skipFlash) {
     // Thunder attack flash — 2D path for the canvas route. WebGL renders

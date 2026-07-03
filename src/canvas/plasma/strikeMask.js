@@ -2,9 +2,11 @@ import { pointAtLength } from "../lightning/geometry.js";
 import { PLASMA_BOLT_STYLE } from "../../webgl/plasmaBoltStyle.js";
 
 export const PATH_REVEAL = {
-  // Hairline crack — uniform thin width for every bolt and fork.
-  uniformWidth: 0.55,
-  glowBlurMax: 0.7,
+  // Hairline filament — same width for trunks and forks. Kept very narrow
+  // so the plasma-reveal swath reads as a sharp lightning line instead of
+  // a wide painted corridor that the user described as "fat threads".
+  uniformWidth: 0.28,
+  glowBlurMax: 0.22,
 };
 
 function revealWidth() {
@@ -46,7 +48,7 @@ export function strokePartialReveal(ctx, points, cumLengths, drawLength, _depth,
   ctx.lineWidth = width;
   ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.lineWidth = Math.max(0.28, width * 0.38);
+  ctx.lineWidth = Math.max(0.2, width * 0.35);
   ctx.stroke();
   ctx.restore();
 }

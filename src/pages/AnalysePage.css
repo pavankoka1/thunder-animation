@@ -1,0 +1,210 @@
+.analyse-page {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 24px 16px 40px;
+  color: #ddd;
+}
+
+.analyse-page__header {
+  max-width: 560px;
+  text-align: center;
+}
+
+.analyse-page__link {
+  display: inline-block;
+  margin-bottom: 10px;
+  font-size: 0.8125rem;
+  color: #7eb8ff;
+  text-decoration: none;
+}
+
+.analyse-page__link:hover {
+  text-decoration: underline;
+}
+
+.analyse-page__title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.analyse-page__subtitle {
+  margin: 8px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: #888;
+}
+
+.analyse-page__demo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.analyse-betspot {
+  position: relative;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 30px;
+  overflow: visible;
+}
+
+.analyse-betspot:disabled {
+  cursor: wait;
+}
+
+.analyse-betspot__layer,
+.analyse-betspot__border,
+.analyse-betspot__status {
+  position: absolute;
+  display: block;
+}
+
+.analyse-betspot__body {
+  z-index: 0;
+  pointer-events: none;
+  /* Blue body — cyan highlight up top easing to a deep blue/violet base,
+     matching the Regular Betspot reference. */
+  background:
+    radial-gradient(115% 85% at 50% 12%, #a6e0ff 0%, rgba(166, 224, 255, 0) 55%),
+    linear-gradient(180deg, #74c2f6 0%, #5a93ef 45%, #5566d8 78%, #6a56cf 100%);
+  /* Soft outer glow so the spot sits on a blue halo before activation. */
+  box-shadow:
+    0 0 12px 2px rgba(120, 170, 255, 0.45),
+    0 0 30px 8px rgba(110, 90, 220, 0.28);
+}
+
+.analyse-betspot__energy {
+  z-index: 1;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  transition: opacity 1.5s cubic-bezier(0.22, 0.72, 0.2, 1);
+}
+
+.analyse-betspot__border {
+  z-index: 2;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 175, 235, 0);
+  box-shadow:
+    0 0 0 0 rgba(255, 252, 254, 0),
+    0 0 0 0 rgba(255, 120, 220, 0),
+    0 0 0 0 rgba(255, 80, 200, 0);
+  opacity: 0;
+  transition:
+    opacity 0.26s ease-out,
+    border-color 0.26s ease-out,
+    box-shadow 0.26s ease-out;
+}
+
+.analyse-betspot__border.is-active {
+  opacity: 1;
+  border-color: rgba(255, 175, 235, 0.95);
+  box-shadow:
+    0 0 3px 1px rgba(255, 252, 254, 0.9),
+    0 0 10px 4px rgba(255, 120, 220, 0.7),
+    0 0 22px 10px rgba(255, 80, 200, 0.5);
+  animation: analyse-border-pulse 1.2s ease-in-out 0.26s infinite;
+}
+
+@keyframes analyse-border-pulse {
+  0%,
+  100% {
+    filter: brightness(0.94);
+  }
+  50% {
+    filter: brightness(1.08);
+  }
+}
+
+.analyse-betspot__topbar {
+  z-index: 3;
+  pointer-events: none;
+}
+
+.analyse-betspot__chip {
+  z-index: 4;
+  pointer-events: none;
+}
+
+.analyse-betspot__status {
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  font-size: 0.75rem;
+  color: #eee;
+  background: rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.analyse-page__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.analyse-btn {
+  padding: 8px 14px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #1a1a1a;
+  color: #ddd;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.analyse-btn:hover:not(:disabled) {
+  border-color: #666;
+  background: #252525;
+}
+
+.analyse-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.analyse-btn_primary {
+  border-color: #b06cff;
+  background: #2a1848;
+  color: #f3e8ff;
+}
+
+.analyse-btn_primary:hover:not(:disabled) {
+  background: #3a2060;
+}
+
+.analyse-page__notes {
+  max-width: 520px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: #888;
+}
+
+.analyse-page__notes h2 {
+  margin: 0 0 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #bbb;
+}
+
+.analyse-page__notes ol {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.analyse-page__notes li {
+  margin-top: 6px;
+}
+
+.analyse-page__notes code {
+  font-size: 0.78rem;
+  color: #c9a8ff;
+}

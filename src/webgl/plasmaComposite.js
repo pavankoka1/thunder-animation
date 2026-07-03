@@ -103,6 +103,7 @@ export function paintPlasmaComposite(
     ctx.clip();
     ctx.globalCompositeOperation = "screen";
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.imageSmoothingEnabled = false;
     ctx.drawImage(scratch, 0, 0);
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
     ctx.globalCompositeOperation = "source-over";

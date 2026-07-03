@@ -1,0 +1,230 @@
+.paths-page {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  padding: 28px 16px 60px;
+  color: #cbd9e8;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.paths-page__header {
+  max-width: 620px;
+  text-align: center;
+}
+
+.paths-page__back {
+  display: inline-block;
+  margin-bottom: 10px;
+  font-size: 0.8125rem;
+  color: #6eb8ff;
+  text-decoration: none;
+}
+
+.paths-page__back:hover {
+  text-decoration: underline;
+}
+
+.paths-page__header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f3f6fa;
+}
+
+.paths-page__header p {
+  margin: 8px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: #93a4b8;
+}
+
+.paths-stage-wrap {
+  padding: var(--rim-bleed, 20px);
+}
+
+.paths-stage-shake {
+  will-change: transform;
+}
+
+.paths-stage {
+  position: relative;
+  background: #000;
+  overflow: visible;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* Match home BetspotStage layer stack (App.css) */
+.paths-stage.betspot-stage .betspot-stage__layer,
+.paths-stage.betspot-stage .betspot-stage__canvas,
+.paths-stage.betspot-stage .betspot-stage__bg {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.paths-stage.betspot-stage .betspot-stage__bg {
+  z-index: 1;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+}
+
+.paths-stage.betspot-stage .betspot-stage__canvas {
+  z-index: 2;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  clip-path: inset(2px 2px 2px 2px round 46px);
+}
+
+.paths-stage.betspot-stage .betspot-stage__overlay {
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* Electric fringe — behind betspot content, bleeds outside the rim edge. */
+.paths-stage__rim {
+  position: absolute;
+  top: calc(-1 * var(--rim-bleed, 20px));
+  left: calc(-1 * var(--rim-bleed, 20px));
+  z-index: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.paths-stage__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  font-size: 0.875rem;
+  color: #7a9ab8;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.paths-stage__phase {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 6px 14px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #cdeeff;
+  background: rgba(6, 18, 34, 0.78);
+  border: 1px solid rgba(100, 220, 255, 0.35);
+  border-radius: 999px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.paths-btn {
+  appearance: none;
+  cursor: pointer;
+  padding: 8px 16px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #eaf6ff;
+  background: linear-gradient(180deg, #1b5e8a 0%, #0c3a5c 100%);
+  border: 1px solid rgba(120, 220, 255, 0.45);
+  border-radius: 8px;
+}
+
+.paths-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #2274a6 0%, #0f4870 100%);
+}
+
+.paths-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.paths-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  font-size: 0.8125rem;
+  color: #9bb2c8;
+}
+
+.paths-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.paths-legend__item::before {
+  content: "";
+  width: 22px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+.paths-legend__item_trunk::before {
+  background: rgba(120, 255, 240, 0.95);
+  box-shadow: 0 0 6px rgba(120, 255, 240, 0.6);
+}
+
+.paths-legend__item_branch::before {
+  background: #1a2a3a;
+  border: 1px solid rgba(255,255,255,0.15);
+}
+
+.paths-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  width: min(520px, 100%);
+  border: 1px solid #28415b;
+  border-radius: 10px;
+  background: rgba(0, 30, 60, 0.4);
+}
+
+.paths-controls__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.875rem;
+}
+
+.paths-controls__slider {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.paths-controls__slider input[type="range"] {
+  width: 100%;
+}
+
+.paths-controls__stats {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #9bb2c8;
+}
+
+.paths-controls__stats strong {
+  color: #d9e6f5;
+  font-variant-numeric: tabular-nums;
+}
+
+.paths-controls__error {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #ff8a8a;
+}
+
+.paths-controls__warn {
+  margin: 0;
+  max-width: 520px;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: #ffb86a;
+}

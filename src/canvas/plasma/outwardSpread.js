@@ -65,21 +65,12 @@ export function distFromOrigin(x, y, origin = THUNDER_ORIGIN) {
 }
 
 /**
- * Path timing capped by outward wave — center segments appear first, tips reach edges last.
+ * Each bolt is fully visible the instant it spawns — no wavefront walk
+ * along the polyline. That walk is what was reading as "crawling/creeping
+ * lines". The strike itself is instantaneous; the visible animation is the
+ * staggered SEQUENCE of bolts spawning (the "multiple thunders" feel) plus
+ * the per-bolt flash + afterglow.
  */
-export function segmentDrawLengthOutward(segment, boltT, progress, origin = THUNDER_ORIGIN) {
-  const timed = segmentDrawLength(segment, boltT);
-  if (timed <= 0) return 0;
-
-  let allowed = 0;
-  for (let i = 0; i < segment.points.length; i += 1) {
-    const cum = segment.cumLengths[i];
-    if (cum > timed) break;
-
-    const p = segment.points[i];
-    if (outwardRevealGate(distFromOrigin(p.x, p.y, origin), progress, p.x, p.y, origin) <= 0.04) break;
-    allowed = cum;
-  }
-
-  return allowed;
+export function segmentDrawLengthOutward(segment, boltT /*, progress, origin */) {
+  return segmentDrawLength(segment, boltT);
 }
