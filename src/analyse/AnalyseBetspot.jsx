@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { generateEnergyCanvas } from "./cellularEnergy.js";
-import { initMotionAssets, paintEnergyFrame } from "./energyMotion.js";
-import { extractSegments } from "./filamentSegments.js";
+import { initWarpAssets, paintEnergyFrame } from "./energyMotion.js";
+import { canvasToField, detectHubs } from "./energyHubs.js";
 import { loadPlasmaFilaments } from "./plasmaFilaments.js";
 import { BODY, CHIP, ENERGY_OPACITY, LAYER_URLS, STAGE, TOP_BAR } from "./spec.js";
 
@@ -37,9 +37,9 @@ export default function AnalyseBetspot() {
   useEffect(() => {
     let cancelled = false;
 
-    // Extract the plasma filament network once, then re-stroke it into the
-    // energy canvas. The reveal itself is a pure CSS opacity transition after
-    // this bake, so it stays cheap however rich the paths are.
+    // Bake the plasma filament web once, then warp those baked pixels each
+    // frame. The reveal itself is a pure CSS opacity transition after this
+    // bake; the motion resamples the same canvas, adding no new content.
     (async () => {
       try {
         const data = await loadPlasmaFilaments(BODY.width, BODY.height, 3);
@@ -53,15 +53,11 @@ export default function AnalyseBetspot() {
         canvas.getContext("2d").drawImage(baked, 0, 0);
         bakedRef.current = baked;
         try {
-          const extraction = await extractSegments(data.web);
-          if (cancelled) return;
-          if (extraction.segments.length > 0) {
-            motionRef.current = initMotionAssets(baked, extraction);
-          } else {
-            console.warn("No filament segments — energy stays static");
-          }
+          const { field, w, h } = canvasToField(baked);
+          const hubs = detectHubs(field, w, h);
+          motionRef.current = initWarpAssets(baked, hubs);
         } catch (err) {
-          console.warn("Filament segments unavailable — energy stays static", err);
+          console.warn("Warp assets unavailable — energy stays static", err);
         }
         setReady(true);
       } catch (err) {
