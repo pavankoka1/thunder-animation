@@ -20,6 +20,16 @@ export default function AnalyseBetspot() {
   const motionRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [revealed, setRevealed] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = (e) => setReducedMotion(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   const stageW = STAGE.width * STAGE.scale;
   const stageH = STAGE.height * STAGE.scale;
@@ -70,8 +80,7 @@ export default function AnalyseBetspot() {
   useEffect(() => {
     const canvas = canvasRef.current;
     const assets = motionRef.current;
-    if (!revealed || !ready || !canvas || !assets) return undefined;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
+    if (!revealed || !ready || !canvas || !assets || reducedMotion) return undefined;
 
     const ctx = canvas.getContext("2d");
     const start = performance.now();
@@ -102,7 +111,7 @@ export default function AnalyseBetspot() {
         ctx.drawImage(baked, 0, 0);
       }
     };
-  }, [revealed, ready]);
+  }, [revealed, ready, reducedMotion]);
 
   const toggleEnergy = useCallback(() => {
     if (!ready) return;
