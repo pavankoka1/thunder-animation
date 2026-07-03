@@ -207,6 +207,15 @@ git commit -m "feat(analyse): vitest infra + hub detection for filament motion"
 
 ### Task 2: Segment extraction from the web mask (TDD)
 
+> **Deviation (2026-07-03, during execution):** the original 1px-cross test mask
+> is a pathological input — `pruneSkeletonSpurs` in the shared extractor walks
+> from degree-1 endpoints with a first-step backtrack, erasing leaf-ended 1px
+> hairlines 2px per sweep until gone. Real plasma webs are thick-stroked,
+> junction-rich meshes and are unaffected (the home page proves this). The test
+> mask was changed to a 3px-thick mesh (rectangle outline + cross) which the
+> pipeline handles as expected. Shared code untouched. Follow-up: confirm real
+> web segment count during Task 5/6 browser verification.
+
 **Files:**
 - Modify: `src/analyse/filamentSegments.js` (append)
 - Test: `src/analyse/__tests__/filamentSegments.test.js` (append)

@@ -86,3 +86,62 @@ export function detectHubs(alpha, w, h, count = 3, minSep = Math.round(Math.min(
   }
   return hubs;
 }
+
+/**
+ * Skeletonize a binary mask and trace it into densified polyline segments.
+ * Pure (no DOM) — points stay in mask/energy-canvas pixel coordinates.
+ *
+ * @returns {Promise<Array<{id:number, points:Array<{x,y}>, length:number}>>}
+ */
+export async function segmentsFromMask(mask, w, h) {
+  const { skel, w: sw, h: sh, mapPoint } = await buildSkeletonFromMask(mask, w, h);
+  const raw = traceSkeletonPaths(skel, sw, sh, mapPoint, 3);
+  let segments = chainSegments(pathsToSegments(raw, 1, 0));
+
+  return segments
+    .map((seg) => ({ ...seg, points: densifySegmentPoints(seg.points, DENSIFY_SPACING) }))
+    .filter((seg) => seg.points.length >= 3 && seg.length >= MIN_SEGMENT_LEN)
+    .map((seg, idx) => ({ id: idx, points: seg.points, length: seg.length }));
+}
+
+/** Tag each segment with the index of the hub nearest its midpoint. */
+export function tagSegmentsWithHubs(segments, hubs) {
+  if (!hubs.length) return segments.map((seg) => ({ ...seg, hub: 0 }));
+  return segments.map((seg) => {
+    const mid = seg.points[(seg.points.length / 2) | 0];
+    let best = 0;
+    let bestD = Infinity;
+    for (let k = 0; k < hubs.length; k += 1) {
+      const d = Math.hypot(hubs[k].x - mid.x, hubs[k].y - mid.y);
+      if (d < bestD) {
+        bestD = d;
+        best = k;
+      }
+    }
+    return { ...seg, hub: best };
+  });
+}
+
+/** Read the web canvas's alpha channel into a Float32Array in [0,1]. */
+export function webCanvasToAlpha(web) {
+  const w = web.width;
+  const h = web.height;
+  const data = web.getContext("2d").getImageData(0, 0, w, h).data;
+  const alpha = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i += 1) alpha[i] = data[i * 4 + 3] / 255;
+  return { alpha, w, h };
+}
+
+/**
+ * Full extraction for the betspot: web canvas → { segments, hubs }.
+ * Canvas-dependent wrapper around the pure helpers above.
+ */
+export async function extractSegments(web) {
+  const { alpha, w, h } = webCanvasToAlpha(web);
+  const mask = new Uint8Array(w * h);
+  for (let i = 0; i < alpha.length; i += 1) mask[i] = alpha[i] > MASK_ALPHA ? 1 : 0;
+
+  const hubs = detectHubs(alpha, w, h);
+  const segments = tagSegmentsWithHubs(await segmentsFromMask(mask, w, h), hubs);
+  return { segments, hubs };
+}

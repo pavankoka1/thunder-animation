@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectHubs } from "../filamentSegments.js";
+import { detectHubs, segmentsFromMask, tagSegmentsWithHubs } from "../filamentSegments.js";
 
 /** Paint a soft square blob of the given peak strength into a Float32Array grid. */
 function addBlob(alpha, w, h, cx, cy, radius, peak) {
@@ -35,5 +35,68 @@ describe("detectHubs", () => {
   it("returns fewer hubs than requested when the field is empty", () => {
     const hubs = detectHubs(new Float32Array(40 * 40), 40, 40, 3, 10);
     expect(hubs.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("segmentsFromMask", () => {
+  it("traces a thick mesh mask into segments with interior vertices", async () => {
+    // Thick strokes + closed-mesh topology, like the real filament web. The
+    // shared skeleton pipeline aggressively prunes leaf-ended 1px hairlines,
+    // so those are not a supported input — the plasma web never produces them.
+    const w = 80;
+    const h = 60;
+    const mask = new Uint8Array(w * h);
+    const thick = (x, y) => {
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          const xx = x + dx;
+          const yy = y + dy;
+          if (xx >= 0 && yy >= 0 && xx < w && yy < h) mask[yy * w + xx] = 1;
+        }
+      }
+    };
+    for (let x = 10; x <= 70; x += 1) {
+      thick(x, 10); // top edge
+      thick(x, 30); // horizontal mid
+      thick(x, 50); // bottom edge
+    }
+    for (let y = 10; y <= 50; y += 1) {
+      thick(10, y); // left edge
+      thick(40, y); // vertical mid
+      thick(70, y); // right edge
+    }
+
+    const segments = await segmentsFromMask(mask, w, h);
+
+    expect(segments.length).toBeGreaterThanOrEqual(2);
+    const totalLength = segments.reduce((n, s) => n + s.length, 0);
+    expect(totalLength).toBeGreaterThan(60);
+    for (const seg of segments) {
+      expect(seg.points.length).toBeGreaterThanOrEqual(3);
+      for (const p of seg.points) {
+        expect(p.x).toBeGreaterThanOrEqual(0);
+        expect(p.x).toBeLessThan(w);
+        expect(p.y).toBeGreaterThanOrEqual(0);
+        expect(p.y).toBeLessThan(h);
+      }
+    }
+    // ids are dense and unique
+    expect(new Set(segments.map((s) => s.id)).size).toBe(segments.length);
+  });
+});
+
+describe("tagSegmentsWithHubs", () => {
+  it("assigns each segment to its nearest hub by midpoint", () => {
+    const segments = [
+      { id: 0, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], length: 10 },
+      { id: 1, points: [{ x: 90, y: 0 }, { x: 100, y: 0 }], length: 10 },
+    ];
+    const hubs = [
+      { x: 5, y: 0, strength: 1 },
+      { x: 95, y: 0, strength: 0.8 },
+    ];
+    const tagged = tagSegmentsWithHubs(segments, hubs);
+    expect(tagged[0].hub).toBe(0);
+    expect(tagged[1].hub).toBe(1);
   });
 });
