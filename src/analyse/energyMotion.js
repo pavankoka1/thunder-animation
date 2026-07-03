@@ -10,6 +10,14 @@
  * This module is pure math + painting; it owns no state and no rAF loop.
  */
 
+import {
+  MAGENTA,
+  REACH_STOPS,
+  THICK_STOPS,
+  VIOLET,
+  WHITE,
+} from "./cellularEnergy.js";
+
 const TAU = Math.PI * 2;
 
 /** Writhe amplitude in energy-canvas px (0.55 body-units × 3 supersample). */
@@ -105,4 +113,128 @@ export function computeRouteWeights(segments, hubs, tSec, out) {
     weights[i] = Math.min(1, weights[i] * scale);
   }
   return weights;
+}
+
+/** Stroke widths (energy-canvas px) and pass alphas — tuned to match the bake. */
+const HALO_WIDTH = 5.5;
+const MID_WIDTH = 2.2;
+const CORE_WIDTH = 1.0;
+const HALO_ALPHA = 0.5;
+const MID_ALPHA = 0.62;
+const CORE_ALPHA = 0.78;
+/** One blur applied to the whole halo layer per frame (not per stroke). */
+const HALO_LAYER_BLUR_PX = 4;
+/** Dimmed baked web that always underlies the strokes. */
+const BASE_DIM = 0.55;
+
+function makeCanvas(w, h) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return c;
+}
+
+/** White radial gradient canvas for destination-in masking (stops from the bake). */
+function makeRadialMask(w, h, stops) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext("2d");
+  const cx = w * 0.5;
+  const cy = h * 0.5;
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(cx, cy));
+  for (const [offset, alpha] of stops) g.addColorStop(offset, `rgba(255,255,255,${alpha})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  return c;
+}
+
+/**
+ * One-time asset bundle for the frame painter.
+ *
+ * @param {HTMLCanvasElement} baked the existing static energy bake
+ * @param {{segments:Array, hubs:Array}} extraction from extractSegments
+ */
+export function initMotionAssets(baked, extraction) {
+  const w = baked.width;
+  const h = baked.height;
+
+  const dimmed = makeCanvas(w, h);
+  const dctx = dimmed.getContext("2d");
+  dctx.globalAlpha = BASE_DIM;
+  dctx.drawImage(baked, 0, 0);
+
+  return {
+    w,
+    h,
+    baked,
+    dimmed,
+    segments: extraction.segments,
+    hubs: extraction.hubs,
+    weights: new Float32Array(extraction.segments.length),
+    reachMask: makeRadialMask(w, h, REACH_STOPS),
+    thickMask: makeRadialMask(w, h, THICK_STOPS),
+    haloLayer: makeCanvas(w, h),
+    reachLayer: makeCanvas(w, h),
+  };
+}
+
+function strokePolyline(ctx, pts, width, color, alpha) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i += 1) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.lineWidth = width;
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = alpha;
+  ctx.stroke();
+}
+
+/**
+ * Paint one ambient frame onto the energy canvas context.
+ * Layers: dimmed bake → halo strokes (thickness-masked, layer-blurred) →
+ * mid+core strokes (reach-masked), all lighter-blended like the bake.
+ */
+export function paintEnergyFrame(ctx, assets, tMs) {
+  const { w, h, dimmed, segments, hubs, weights, haloLayer, reachLayer, reachMask, thickMask } =
+    assets;
+  if (!segments.length) return;
+  const t = tMs / 1000;
+
+  computeRouteWeights(segments, hubs, t, weights);
+
+  const hctx = haloLayer.getContext("2d");
+  const rctx = reachLayer.getContext("2d");
+  for (const c of [hctx, rctx]) {
+    c.globalCompositeOperation = "source-over";
+    c.globalAlpha = 1;
+    c.clearRect(0, 0, w, h);
+    c.lineCap = "round";
+    c.lineJoin = "round";
+    c.globalCompositeOperation = "lighter";
+  }
+
+  for (let i = 0; i < segments.length; i += 1) {
+    const wgt = weights[i];
+    if (wgt < WEIGHT_FLOOR) continue;
+    const pts = jitterSegmentPoints(segments[i], t);
+    strokePolyline(hctx, pts, HALO_WIDTH * (0.7 + 0.3 * wgt), VIOLET, HALO_ALPHA * wgt);
+    strokePolyline(rctx, pts, MID_WIDTH, MAGENTA, MID_ALPHA * wgt);
+    strokePolyline(rctx, pts, CORE_WIDTH, WHITE, CORE_ALPHA * wgt);
+  }
+
+  hctx.globalCompositeOperation = "destination-in";
+  hctx.globalAlpha = 1;
+  hctx.drawImage(thickMask, 0, 0);
+  rctx.globalCompositeOperation = "destination-in";
+  rctx.globalAlpha = 1;
+  rctx.drawImage(reachMask, 0, 0);
+
+  ctx.globalCompositeOperation = "source-over";
+  ctx.globalAlpha = 1;
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(dimmed, 0, 0);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.filter = `blur(${HALO_LAYER_BLUR_PX}px)`;
+  ctx.drawImage(haloLayer, 0, 0);
+  ctx.filter = "none";
+  ctx.drawImage(reachLayer, 0, 0);
+  ctx.globalCompositeOperation = "source-over";
 }
