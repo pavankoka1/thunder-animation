@@ -117,3 +117,126 @@ export function branchLife(slot, tSec, period = PERIOD) {
   const flicker = 0.78 + 0.22 * Math.sin(tSec * 11 + slot.seed);
   return { cycle, extent, alpha: Math.max(0, Math.min(1, extent * flicker)) };
 }
+
+/** Neon glow passes (rgba prefixes; alpha appended per draw). */
+const HALO = "rgba(150,70,225,";
+const MID = "rgba(210,120,245,";
+const CORE = "rgba(250,252,255,";
+/** Hubs on the body midline, matching the reference clusters. */
+const HUB_XS = [0.28, 0.5, 0.72];
+/** Per-vertex paint-time jitter amplitude (px). */
+const JITTER = 1.2;
+
+function makeCanvas(w, h) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return c;
+}
+
+function makeVignette(w, h) {
+  const c = makeCanvas(w, h);
+  const ctx = c.getContext("2d");
+  const cx = w * 0.5;
+  const cy = h * 0.5;
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(cx, cy));
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.6, "rgba(255,255,255,0.92)");
+  g.addColorStop(0.85, "rgba(255,255,255,0.5)");
+  g.addColorStop(1, "rgba(255,255,255,0.08)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  return c;
+}
+
+/** One-time asset bundle: slots, offscreen, vignette, per-slot path cache. */
+export function initNetwork(w, h) {
+  const hubs = HUB_XS.map((fx) => ({ x: fx * w, y: h * 0.5 }));
+  const slots = buildNetwork(w, h, hubs);
+  return {
+    w,
+    h,
+    slots,
+    offscreen: makeCanvas(w, h),
+    vignette: makeVignette(w, h),
+    cache: slots.map(() => ({ cycle: -1, branches: null })),
+  };
+}
+
+function strokeVisible(ctx, branch, drawLen, tSec, seed, width, style) {
+  const pts = branch.points;
+  const cum = branch.cumLengths;
+  ctx.beginPath();
+  let started = false;
+  for (let i = 0; i < pts.length; i += 1) {
+    if (cum[i] > drawLen) break;
+    const jx = Math.sin(tSec * 2.1 + seed + i * 1.3) * JITTER;
+    const jy = Math.cos(tSec * 1.7 + seed + i * 1.7) * JITTER;
+    const x = pts[i].x + jx;
+    const y = pts[i].y + jy;
+    if (!started) {
+      ctx.moveTo(x, y);
+      started = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  if (!started) return;
+  ctx.lineWidth = width;
+  ctx.strokeStyle = style;
+  ctx.stroke();
+}
+
+/**
+ * Paint one frame of the reforming network. Regenerates a slot's jagged path
+ * when its life-cycle advances; draws the grown portion with additive neon
+ * glow; masks with the vignette; blits. Signature matches the prior painters.
+ */
+export function paintNetworkFrame(ctx, assets, tMs) {
+  if (!assets) return;
+  const { w, h, slots, offscreen, vignette, cache } = assets;
+  const t = tMs / 1000;
+
+  const octx = offscreen.getContext("2d");
+  octx.globalCompositeOperation = "source-over";
+  octx.globalAlpha = 1;
+  octx.clearRect(0, 0, w, h);
+  octx.globalCompositeOperation = "lighter";
+  octx.lineCap = "round";
+  octx.lineJoin = "round";
+
+  for (let i = 0; i < slots.length; i += 1) {
+    const slot = slots[i];
+    const life = branchLife(slot, t);
+    if (life.alpha < 0.02) continue;
+
+    const slotCache = cache[i];
+    if (slotCache.cycle !== life.cycle) {
+      slotCache.cycle = life.cycle;
+      slotCache.branches = generateBranch(
+        slot.hub,
+        slot.angle,
+        slot.baseLength,
+        (slot.seed ^ (life.cycle * 0x9e3779b1)) >>> 0,
+        w,
+        h,
+      );
+    }
+
+    const a = life.alpha;
+    for (const branch of slotCache.branches) {
+      const drawLen = life.extent * branch.length;
+      strokeVisible(octx, branch, drawLen, t, slot.seed, 4.5, HALO + (0.28 * a).toFixed(3) + ")");
+      strokeVisible(octx, branch, drawLen, t, slot.seed, 2.0, MID + (0.5 * a).toFixed(3) + ")");
+      strokeVisible(octx, branch, drawLen, t, slot.seed, 0.9, CORE + (0.85 * a).toFixed(3) + ")");
+    }
+  }
+
+  octx.globalCompositeOperation = "destination-in";
+  octx.globalAlpha = 1;
+  octx.drawImage(vignette, 0, 0);
+  octx.globalCompositeOperation = "source-over";
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.drawImage(offscreen, 0, 0);
+}
