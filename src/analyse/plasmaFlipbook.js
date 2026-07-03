@@ -87,8 +87,7 @@ export function initFlipbook(sheet, targetW, targetH) {
 
 /**
  * Paint the current flipbook frame into ctx: cover-fit the sprite sub-rect onto
- * the offscreen, mask with the vignette, blit. Same signature as the old
- * paintEnergyFrame so the component rAF loop is unchanged.
+ * the offscreen, mask with the vignette, blit.
  */
 export function paintFlipbookFrame(ctx, assets, tMs) {
   if (!assets) return;
