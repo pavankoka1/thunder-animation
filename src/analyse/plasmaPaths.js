@@ -13,10 +13,15 @@ export function coverTransform(fw, fh, tw, th) {
   return { scale, offX: (fw - tw / scale) / 2, offY: (fh - th / scale) / 2 };
 }
 
-/** Loop position → crossfade pair. p = (t/loop·count) mod count. */
+/**
+ * Loop position → crossfade pair. p = (t/loop·count) mod count.
+ * Clamps negative time to 0 — the first rAF timestamp can be marginally less
+ * than the captured start, which would otherwise give a negative modulo (k0=-1).
+ */
 export function keyframeAt(tMs, loopMs, count) {
   if (count <= 0) return { k0: 0, k1: 0, frac: 0 };
-  const p = ((tMs / loopMs) * count) % count;
+  const t = tMs > 0 ? tMs : 0;
+  const p = ((t / loopMs) * count) % count;
   const k0 = Math.floor(p);
   return { k0: k0 % count, k1: (k0 + 1) % count, frac: p - k0 };
 }

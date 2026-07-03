@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { initNetwork, paintNetworkFrame } from "./plasmaNetwork.js";
+import { initPaths, loadPaths, paintPathsFrame } from "./plasmaPaths.js";
 import { BODY, CHIP, ENERGY_OPACITY, LAYER_URLS, STAGE, TOP_BAR } from "./spec.js";
+
+const PATHS_URL = "/analyse/plasma-paths.json";
 
 function layerStyle(box, scale = STAGE.scale) {
   return {
@@ -33,24 +35,27 @@ export default function AnalyseBetspot() {
   useEffect(() => {
     let cancelled = false;
 
-    // Build the procedural network once, size the canvas to the body, and paint
-    // the t=0 frame as the static image. The reveal loop then animates it.
+    // Load the extracted plasma web once, size the canvas to the body, and paint
+    // the t=0 keyframe as the static image. The reveal loop then crossfades the
+    // keyframes so the web's paths re-route in place.
     (async () => {
       try {
+        const json = await loadPaths(PATHS_URL);
+        if (cancelled) return;
         const canvas = canvasRef.current;
-        if (cancelled || !canvas) return;
+        if (!canvas) return;
 
         const w = BODY.width * STAGE.scale;
         const h = BODY.height * STAGE.scale;
         canvas.width = w;
         canvas.height = h;
 
-        const assets = initNetwork(w, h);
+        const assets = initPaths(json, w, h);
         motionRef.current = assets;
-        paintNetworkFrame(canvas.getContext("2d"), assets, 0);
+        paintPathsFrame(canvas.getContext("2d"), assets, 0);
         setReady(true);
       } catch (err) {
-        console.error("Failed to build plasma network", err);
+        console.error("Failed to load plasma paths", err);
       }
     })();
 
@@ -72,7 +77,7 @@ export default function AnalyseBetspot() {
     let raf = 0;
 
     const frame = (now) => {
-      paintNetworkFrame(ctx, assets, now - start);
+      paintPathsFrame(ctx, assets, now - start);
       raf = requestAnimationFrame(frame);
     };
 
@@ -87,7 +92,7 @@ export default function AnalyseBetspot() {
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onVisibility);
-      if (assets) paintNetworkFrame(ctx, assets, 0);
+      if (assets) paintPathsFrame(ctx, assets, 0);
     };
   }, [revealed, ready, reducedMotion]);
 

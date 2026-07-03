@@ -38,4 +38,12 @@ describe("keyframeAt", () => {
   it("is safe when count is 0", () => {
     expect(keyframeAt(500, 6000, 0)).toEqual({ k0: 0, k1: 0, frac: 0 });
   });
+
+  it("clamps negative time to the start (first rAF frame guard)", () => {
+    // rAF's first timestamp can be marginally < the captured start → tMs < 0.
+    const r = keyframeAt(-0.4, 6000, 10);
+    expect(r.k0).toBe(0);
+    expect(r.k1).toBe(1);
+    expect(r.frac).toBe(0);
+  });
 });

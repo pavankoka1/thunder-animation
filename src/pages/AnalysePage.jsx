@@ -10,11 +10,10 @@ export default function AnalysePage() {
         </a>
         <h1 className="analyse-page__title">Analyse — inner energy</h1>
         <p className="analyse-page__subtitle">
-          Blue body and outer glow are pure CSS. The inner energy is a procedurally
-          generated lightning network — filaments branch out from three hubs and their
-          paths continuously reform in code (grow, retract, regrow on new routes). Painted
-          with additive neon glow, screen-blended over the body and edge-faded. Click to
-          toggle.
+          Blue body and outer glow are pure CSS. The inner energy is the filament web
+          extracted from the artwork, rendered as vector branches that crossfade between
+          keyframes — the dense web stays present while its paths re-route in place,
+          looping. Screen-blended over the body and edge-faded. Click to toggle.
         </p>
       </header>
 
