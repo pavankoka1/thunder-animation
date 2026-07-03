@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  WRITHE_AMP,
-  computeRouteWeights,
-  jitterSegmentPoints,
-} from "../energyMotion.js";
+import { WRITHE_AMP, computeRouteWeights, jitterSegmentPoints } from "../energyMotion.js";
 
 function line(id, n = 10) {
   const points = Array.from({ length: n }, (_, i) => ({ x: i * 4, y: 50 }));

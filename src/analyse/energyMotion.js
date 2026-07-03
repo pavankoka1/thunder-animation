@@ -10,13 +10,7 @@
  * This module is pure math + painting; it owns no state and no rAF loop.
  */
 
-import {
-  MAGENTA,
-  REACH_STOPS,
-  THICK_STOPS,
-  VIOLET,
-  WHITE,
-} from "./cellularEnergy.js";
+import { MAGENTA, REACH_STOPS, THICK_STOPS, VIOLET, WHITE } from "./cellularEnergy.js";
 
 const TAU = Math.PI * 2;
 
@@ -141,7 +135,8 @@ function makeRadialMask(w, h, stops) {
   const cx = w * 0.5;
   const cy = h * 0.5;
   const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(cx, cy));
-  for (const [offset, alpha] of stops) g.addColorStop(offset, `rgba(255,255,255,${alpha})`);
+  for (const [offset, alpha] of stops)
+    g.addColorStop(offset, `rgba(255,255,255,${alpha})`);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
   return c;
@@ -193,8 +188,18 @@ function strokePolyline(ctx, pts, width, color, alpha) {
  * mid+core strokes (reach-masked), all lighter-blended like the bake.
  */
 export function paintEnergyFrame(ctx, assets, tMs) {
-  const { w, h, dimmed, segments, hubs, weights, haloLayer, reachLayer, reachMask, thickMask } =
-    assets;
+  const {
+    w,
+    h,
+    dimmed,
+    segments,
+    hubs,
+    weights,
+    haloLayer,
+    reachLayer,
+    reachMask,
+    thickMask,
+  } = assets;
   if (!segments.length) return;
   const t = tMs / 1000;
 

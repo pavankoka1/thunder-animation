@@ -59,7 +59,13 @@ function boxBlurPass(src, dst, w, h, r, horizontal) {
  * @param {Float32Array} alpha web alpha in [0,1], row-major
  * @returns {Array<{x:number,y:number,strength:number}>} strongest first
  */
-export function detectHubs(alpha, w, h, count = 3, minSep = Math.round(Math.min(w, h) / 3)) {
+export function detectHubs(
+  alpha,
+  w,
+  h,
+  count = 3,
+  minSep = Math.round(Math.min(w, h) / 3)
+) {
   const r = Math.max(2, Math.round(Math.min(w, h) / 12));
   let a = Float32Array.from(alpha);
   let b = new Float32Array(w * h);
@@ -125,8 +131,14 @@ export function thinMask(mask, w, h) {
           if (!m[i]) continue;
           // clockwise neighbours from north
           const p = [
-            m[i - w], m[i - w + 1], m[i + 1], m[i + w + 1],
-            m[i + w], m[i + w - 1], m[i - 1], m[i - w - 1],
+            m[i - w],
+            m[i - w + 1],
+            m[i + 1],
+            m[i + w + 1],
+            m[i + w],
+            m[i + w - 1],
+            m[i - 1],
+            m[i - w - 1],
           ];
           const on = p[0] + p[1] + p[2] + p[3] + p[4] + p[5] + p[6] + p[7];
           if (on < 2 || on > 6) continue;
@@ -184,7 +196,7 @@ export function pruneLeafSpurs(skel, w, h, minLen = SPUR_MIN_LEN) {
         let [cx, cy] = nbrs[0];
         while (chain.length < minLen) {
           const nn = skelNeighbors(m, w, h, cx, cy, nbrs).filter(
-            ([nx, ny]) => nx !== px || ny !== py,
+            ([nx, ny]) => nx !== px || ny !== py
           );
           chain.push([cx, cy]);
           if (nn.length !== 1) break;

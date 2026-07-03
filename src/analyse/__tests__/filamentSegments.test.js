@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { detectHubs, segmentsFromMask, tagSegmentsWithHubs } from "../filamentSegments.js";
+import {
+  detectHubs,
+  segmentsFromMask,
+  tagSegmentsWithHubs,
+} from "../filamentSegments.js";
 
 /** Paint a soft square blob of the given peak strength into a Float32Array grid. */
 function addBlob(alpha, w, h, cx, cy, radius, peak) {
@@ -115,8 +119,22 @@ describe("segmentsFromMask", () => {
 describe("tagSegmentsWithHubs", () => {
   it("assigns each segment to its nearest hub by midpoint", () => {
     const segments = [
-      { id: 0, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], length: 10 },
-      { id: 1, points: [{ x: 90, y: 0 }, { x: 100, y: 0 }], length: 10 },
+      {
+        id: 0,
+        points: [
+          { x: 0, y: 0 },
+          { x: 10, y: 0 },
+        ],
+        length: 10,
+      },
+      {
+        id: 1,
+        points: [
+          { x: 90, y: 0 },
+          { x: 100, y: 0 },
+        ],
+        length: 10,
+      },
     ];
     const hubs = [
       { x: 5, y: 0, strength: 1 },

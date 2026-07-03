@@ -15,9 +15,9 @@ export default function AnalysePage() {
           code (web kept, purple cells dropped), then recoloured violet→white and radially
           masked so it's brightest at the centre and fades to faint wisps at the edges,
           like a strike spreading outward. Screen-blended so the blue body shows through
-          the cells. Click to toggle. Once revealed, the web stays alive: branches
-          take turns lighting up around three anchored hubs while filaments slowly
-          writhe in place.
+          the cells. Click to toggle. Once revealed, the web stays alive: branches take
+          turns lighting up around three anchored hubs while filaments slowly writhe in
+          place.
         </p>
       </header>
 

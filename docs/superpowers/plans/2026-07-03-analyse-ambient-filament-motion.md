@@ -11,6 +11,7 @@
 **Hard constraint from the user:** the current code was hard-won — every change to existing files must be minimal and additive. Existing-file edits in this plan, exhaustively: `export` keywords on five existing constants in `cellularEnergy.js` (Task 4), ~30 additive lines in `AnalyseBetspot.jsx` (Task 5), one copy sentence in `AnalysePage.jsx` (Task 5), `package.json` devDependency + script (Task 1). Nothing under `src/canvas/` or `src/webgl/` is modified.
 
 **Calibration targets (measured from the three reference SVGs):**
+
 - Hubs anchored: 3 blur-maxima clusters, never translate.
 - Re-routing: ~50% of the web brightly lit at any moment; total lit energy constant per frame.
 - Writhe: ≈1.65px amplitude on the 438×204 energy canvas (0.55 body-units × 3 supersample), isotropic, endpoints pinned, ~0.2–0.5 Hz.
@@ -21,6 +22,7 @@
 ### Task 1: Vitest infra + hub detection (TDD)
 
 **Files:**
+
 - Modify: `package.json` (add `vitest` devDependency, `test` script)
 - Create: `src/analyse/filamentSegments.js` (hub detection only in this task)
 - Test: `src/analyse/__tests__/filamentSegments.test.js`
@@ -156,7 +158,13 @@ function boxBlurPass(src, dst, w, h, r, horizontal) {
  * @param {Float32Array} alpha web alpha in [0,1], row-major
  * @returns {Array<{x:number,y:number,strength:number}>} strongest first
  */
-export function detectHubs(alpha, w, h, count = 3, minSep = Math.round(Math.min(w, h) / 3)) {
+export function detectHubs(
+  alpha,
+  w,
+  h,
+  count = 3,
+  minSep = Math.round(Math.min(w, h) / 3)
+) {
   const r = Math.max(2, Math.round(Math.min(w, h) / 12));
   let a = Float32Array.from(alpha);
   let b = new Float32Array(w * h);
@@ -227,6 +235,7 @@ git commit -m "feat(analyse): vitest infra + hub detection for filament motion"
 > restored alongside the mesh test.
 
 **Files:**
+
 - Modify: `src/analyse/filamentSegments.js` (append)
 - Test: `src/analyse/__tests__/filamentSegments.test.js` (append)
 
@@ -265,8 +274,22 @@ describe("segmentsFromMask", () => {
 describe("tagSegmentsWithHubs", () => {
   it("assigns each segment to its nearest hub by midpoint", () => {
     const segments = [
-      { id: 0, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], length: 10 },
-      { id: 1, points: [{ x: 90, y: 0 }, { x: 100, y: 0 }], length: 10 },
+      {
+        id: 0,
+        points: [
+          { x: 0, y: 0 },
+          { x: 10, y: 0 },
+        ],
+        length: 10,
+      },
+      {
+        id: 1,
+        points: [
+          { x: 90, y: 0 },
+          { x: 100, y: 0 },
+        ],
+        length: 10,
+      },
     ];
     const hubs = [
       { x: 5, y: 0, strength: 1 },
@@ -366,6 +389,7 @@ git commit -m "feat(analyse): trace web canvas into hub-tagged filament segments
 ### Task 3: Motion math — route weights + writhe jitter (TDD)
 
 **Files:**
+
 - Create: `src/analyse/energyMotion.js` (pure math only in this task)
 - Test: `src/analyse/__tests__/energyMotion.test.js`
 
@@ -375,11 +399,7 @@ Create `src/analyse/__tests__/energyMotion.test.js`:
 
 ```js
 import { describe, expect, it } from "vitest";
-import {
-  WRITHE_AMP,
-  computeRouteWeights,
-  jitterSegmentPoints,
-} from "../energyMotion.js";
+import { WRITHE_AMP, computeRouteWeights, jitterSegmentPoints } from "../energyMotion.js";
 
 function line(id, n = 10) {
   const points = Array.from({ length: n }, (_, i) => ({ x: i * 4, y: 50 }));
@@ -549,7 +569,8 @@ function hubPulse(hubIndex, tSec) {
  * @returns {Float32Array} weight per segment, aligned with `segments`
  */
 export function computeRouteWeights(segments, hubs, tSec, out) {
-  const weights = out && out.length === segments.length ? out : new Float32Array(segments.length);
+  const weights =
+    out && out.length === segments.length ? out : new Float32Array(segments.length);
   let sum = 0;
   let lenSum = 0;
   for (let i = 0; i < segments.length; i += 1) {
@@ -589,6 +610,7 @@ git commit -m "feat(analyse): route-weight + writhe motion math"
 ### Task 4: Frame painter + colour exports
 
 **Files:**
+
 - Modify: `src/analyse/cellularEnergy.js:18-20,53-66` (add `export` keywords ONLY — no logic changes)
 - Modify: `src/analyse/energyMotion.js` (append painting section)
 
@@ -609,6 +631,7 @@ and
 ```js
 export const REACH_STOPS = [
 ```
+
 ```js
 export const THICK_STOPS = [
 ```
@@ -621,13 +644,7 @@ Expected: build succeeds (proves no syntax slip in the shared file).
 Append to `src/analyse/energyMotion.js`:
 
 ```js
-import {
-  MAGENTA,
-  REACH_STOPS,
-  THICK_STOPS,
-  VIOLET,
-  WHITE,
-} from "./cellularEnergy.js";
+import { MAGENTA, REACH_STOPS, THICK_STOPS, VIOLET, WHITE } from "./cellularEnergy.js";
 
 /** Stroke widths (energy-canvas px) and pass alphas — tuned to match the bake. */
 const HALO_WIDTH = 5.5;
@@ -655,7 +672,8 @@ function makeRadialMask(w, h, stops) {
   const cx = w * 0.5;
   const cy = h * 0.5;
   const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(cx, cy));
-  for (const [offset, alpha] of stops) g.addColorStop(offset, `rgba(255,255,255,${alpha})`);
+  for (const [offset, alpha] of stops)
+    g.addColorStop(offset, `rgba(255,255,255,${alpha})`);
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
   return c;
@@ -707,8 +725,18 @@ function strokePolyline(ctx, pts, width, color, alpha) {
  * mid+core strokes (reach-masked), all lighter-blended like the bake.
  */
 export function paintEnergyFrame(ctx, assets, tMs) {
-  const { w, h, dimmed, segments, hubs, weights, haloLayer, reachLayer, reachMask, thickMask } =
-    assets;
+  const {
+    w,
+    h,
+    dimmed,
+    segments,
+    hubs,
+    weights,
+    haloLayer,
+    reachLayer,
+    reachMask,
+    thickMask,
+  } = assets;
   if (!segments.length) return;
   const t = tMs / 1000;
 
@@ -773,6 +801,7 @@ git commit -m "feat(analyse): ambient frame painter over the static bake"
 ### Task 5: Wire the loop into AnalyseBetspot + page copy
 
 **Files:**
+
 - Modify: `src/analyse/AnalyseBetspot.jsx` (additive: 2 imports, 2 refs, extraction in the bake effect, 1 new effect)
 - Modify: `src/pages/AnalysePage.jsx:12-19` (one sentence added to the subtitle)
 
@@ -788,8 +817,8 @@ import { initMotionAssets, paintEnergyFrame } from "./energyMotion.js";
 Inside the component, next to `canvasRef`:
 
 ```js
-  const bakedRef = useRef(null);
-  const motionRef = useRef(null);
+const bakedRef = useRef(null);
+const motionRef = useRef(null);
 ```
 
 - [ ] **Step 2: Extend the bake effect (additive lines only)**
@@ -797,18 +826,18 @@ Inside the component, next to `canvasRef`:
 In the existing async bake effect, after `canvas.getContext("2d").drawImage(baked, 0, 0);` and before `setReady(true);`, insert:
 
 ```js
-        bakedRef.current = baked;
-        try {
-          const extraction = await extractSegments(data.web);
-          if (cancelled) return;
-          if (extraction.segments.length > 0) {
-            motionRef.current = initMotionAssets(baked, extraction);
-          } else {
-            console.warn("No filament segments — energy stays static");
-          }
-        } catch (err) {
-          console.warn("Filament segments unavailable — energy stays static", err);
-        }
+bakedRef.current = baked;
+try {
+  const extraction = await extractSegments(data.web);
+  if (cancelled) return;
+  if (extraction.segments.length > 0) {
+    motionRef.current = initMotionAssets(baked, extraction);
+  } else {
+    console.warn("No filament segments — energy stays static");
+  }
+} catch (err) {
+  console.warn("Filament segments unavailable — energy stays static", err);
+}
 ```
 
 The existing bake, `setReady(true)`, and error handling stay exactly as they are — extraction failure degrades to today's static behaviour.
@@ -818,45 +847,45 @@ The existing bake, `setReady(true)`, and error handling stay exactly as they are
 After the bake effect, add:
 
 ```js
-  // Ambient motion — repaints only the energy canvas while revealed.
-  // Falls back to the static bake when hidden, unmounted, extraction
-  // failed, or the user prefers reduced motion.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const assets = motionRef.current;
-    if (!revealed || !ready || !canvas || !assets) return undefined;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
+// Ambient motion — repaints only the energy canvas while revealed.
+// Falls back to the static bake when hidden, unmounted, extraction
+// failed, or the user prefers reduced motion.
+useEffect(() => {
+  const canvas = canvasRef.current;
+  const assets = motionRef.current;
+  if (!revealed || !ready || !canvas || !assets) return undefined;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return undefined;
 
-    const ctx = canvas.getContext("2d");
-    const start = performance.now();
-    let raf = 0;
+  const ctx = canvas.getContext("2d");
+  const start = performance.now();
+  let raf = 0;
 
-    const frame = (now) => {
-      paintEnergyFrame(ctx, assets, now - start);
-      raf = requestAnimationFrame(frame);
-    };
-
-    const onVisibility = () => {
-      cancelAnimationFrame(raf);
-      if (!document.hidden) raf = requestAnimationFrame(frame);
-    };
-
+  const frame = (now) => {
+    paintEnergyFrame(ctx, assets, now - start);
     raf = requestAnimationFrame(frame);
-    document.addEventListener("visibilitychange", onVisibility);
+  };
 
-    return () => {
-      cancelAnimationFrame(raf);
-      document.removeEventListener("visibilitychange", onVisibility);
-      const baked = bakedRef.current;
-      if (baked) {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.globalAlpha = 1;
-        ctx.filter = "none";
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(baked, 0, 0);
-      }
-    };
-  }, [revealed, ready]);
+  const onVisibility = () => {
+    cancelAnimationFrame(raf);
+    if (!document.hidden) raf = requestAnimationFrame(frame);
+  };
+
+  raf = requestAnimationFrame(frame);
+  document.addEventListener("visibilitychange", onVisibility);
+
+  return () => {
+    cancelAnimationFrame(raf);
+    document.removeEventListener("visibilitychange", onVisibility);
+    const baked = bakedRef.current;
+    if (baked) {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+      ctx.filter = "none";
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(baked, 0, 0);
+    }
+  };
+}, [revealed, ready]);
 ```
 
 - [ ] **Step 4: Update the page copy**
@@ -875,6 +904,7 @@ npm run dev
 ```
 
 Open `http://localhost:5173/analyse` (Playwright or manually) and check:
+
 1. "Baking energy field…" appears then clears (extraction adds < ~1s, once).
 2. Reveal fades in as before; filaments visibly writhe and branches breathe.
 3. Hide restores the exact static frameless look; re-reveal restarts motion.
@@ -895,11 +925,13 @@ git commit -m "feat(analyse): ambient filament motion loop in the betspot"
 ### Task 6: Statistical + performance verification
 
 **Files:**
+
 - Create: `scripts/verify-analyse-motion.py` (throwaway verification helper; committed for reproducibility)
 
 - [ ] **Step 1: Capture two motion frames seconds apart**
 
 With `npm run dev` still running, use Playwright (browser tools or a script) to:
+
 1. Navigate to `http://localhost:5173/analyse`, wait for the Reveal button to be enabled.
 2. Click "Reveal energy", wait 2.5s (fade completes).
 3. Screenshot the canvas element → `frame_a.png`.
@@ -971,7 +1003,13 @@ await new Promise((resolve) => {
     deltas.push(now - last);
     last = now;
     if (deltas.length < 180) requestAnimationFrame(tick);
-    else resolve(console.log("p95 frame ms:", deltas.sort((x, y) => x - y)[Math.floor(deltas.length * 0.95)]));
+    else
+      resolve(
+        console.log(
+          "p95 frame ms:",
+          deltas.sort((x, y) => x - y)[Math.floor(deltas.length * 0.95)]
+        )
+      );
   };
   requestAnimationFrame(tick);
 });

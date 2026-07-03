@@ -19,12 +19,12 @@ Source: three VTracer SVG traces of consecutive plasma frames
 (`plasma_lightning_hires.svg`, `_v2_`, `_v3_`, 1064×864, ~20k paths each), rendered
 and compared pixel-wise. They form a temporal sequence v1 → v2 → v3.
 
-| Behaviour | Measurement | Animation target |
-| --- | --- | --- |
-| Hubs anchored | 3 main clusters (left ~300,340; centre ~445,470; right ~655,495) move ≤2% of width per phase | Hubs never translate; centre may pulse strongest |
-| Branch re-routing | Bright-pixel IoU between adjacent phases ≈ 0.49–0.57; total bright area constant (~10–11%) | ~50% of web brightly lit at any moment; per-frame weight normalization keeps total lit energy constant |
-| Filament writhe | Median local wander 2.8–4.5px on 1064px (~0.3–0.4% of width), isotropic, zero net drift | Per-vertex jitter ≈ 0.55 body-units, endpoints pinned, no global drift |
-| Brightness breathing | Individual tendrils fade in/out; field never pulses globally | Per-segment weight noise, staggered periods 4–7s |
+| Behaviour            | Measurement                                                                                  | Animation target                                                                                       |
+| -------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Hubs anchored        | 3 main clusters (left ~300,340; centre ~445,470; right ~655,495) move ≤2% of width per phase | Hubs never translate; centre may pulse strongest                                                       |
+| Branch re-routing    | Bright-pixel IoU between adjacent phases ≈ 0.49–0.57; total bright area constant (~10–11%)   | ~50% of web brightly lit at any moment; per-frame weight normalization keeps total lit energy constant |
+| Filament writhe      | Median local wander 2.8–4.5px on 1064px (~0.3–0.4% of width), isotropic, zero net drift      | Per-vertex jitter ≈ 0.55 body-units, endpoints pinned, no global drift                                 |
+| Brightness breathing | Individual tendrils fade in/out; field never pulses globally                                 | Per-segment weight noise, staggered periods 4–7s                                                       |
 
 The SVGs are calibration references only — never runtime assets (10MB each).
 
