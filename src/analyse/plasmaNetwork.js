@@ -39,7 +39,17 @@ function grow(x, y, angle, length, rng, w, h, depth, out) {
       const idx = 1 + Math.floor(rng() * (points.length - 1));
       const start = points[Math.min(idx, points.length - 1)];
       const forkAngle = a + (rng() - 0.5) * 1.3;
-      grow(start.x, start.y, forkAngle, length * (0.45 + rng() * 0.2), rng, w, h, depth - 1, out);
+      grow(
+        start.x,
+        start.y,
+        forkAngle,
+        length * (0.45 + rng() * 0.2),
+        rng,
+        w,
+        h,
+        depth - 1,
+        out
+      );
     }
   }
   return out;
@@ -68,9 +78,9 @@ function seedFor(hubIndex, slotIndex) {
  * length, seed, staggered phase). The actual jagged path is regenerated per
  * life-cycle in the painter.
  */
-export function buildNetwork(w, h, hubs, { slotsPerHub = 7 } = {}) {
+export function buildNetwork(w, h, hubs, { slotsPerHub = 9 } = {}) {
   const slots = [];
-  const reach = w * 0.34;
+  const reach = w * 0.38;
   for (let hi = 0; hi < hubs.length; hi += 1) {
     for (let si = 0; si < slotsPerHub; si += 1) {
       const seed = seedFor(hi, si);
@@ -219,16 +229,40 @@ export function paintNetworkFrame(ctx, assets, tMs) {
         slot.baseLength,
         (slot.seed ^ (life.cycle * 0x9e3779b1)) >>> 0,
         w,
-        h,
+        h
       );
     }
 
     const a = life.alpha;
     for (const branch of slotCache.branches) {
       const drawLen = life.extent * branch.length;
-      strokeVisible(octx, branch, drawLen, t, slot.seed, 4.5, HALO + (0.28 * a).toFixed(3) + ")");
-      strokeVisible(octx, branch, drawLen, t, slot.seed, 2.0, MID + (0.5 * a).toFixed(3) + ")");
-      strokeVisible(octx, branch, drawLen, t, slot.seed, 0.9, CORE + (0.85 * a).toFixed(3) + ")");
+      strokeVisible(
+        octx,
+        branch,
+        drawLen,
+        t,
+        slot.seed,
+        5.5,
+        HALO + (0.34 * a).toFixed(3) + ")"
+      );
+      strokeVisible(
+        octx,
+        branch,
+        drawLen,
+        t,
+        slot.seed,
+        2.4,
+        MID + (0.6 * a).toFixed(3) + ")"
+      );
+      strokeVisible(
+        octx,
+        branch,
+        drawLen,
+        t,
+        slot.seed,
+        1.0,
+        CORE + (0.95 * a).toFixed(3) + ")"
+      );
     }
   }
 

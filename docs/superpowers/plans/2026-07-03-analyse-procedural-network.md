@@ -21,6 +21,7 @@
 ### Task 1: Seeded RNG + branch generation (pure)
 
 **Files:**
+
 - Create: `src/analyse/plasmaNetwork.js` (generation only this task)
 - Test: `src/analyse/__tests__/plasmaNetwork.test.js`
 
@@ -132,7 +133,17 @@ function grow(x, y, angle, length, rng, w, h, depth, out) {
       const idx = 1 + Math.floor(rng() * (points.length - 1));
       const start = points[Math.min(idx, points.length - 1)];
       const forkAngle = a + (rng() - 0.5) * 1.3;
-      grow(start.x, start.y, forkAngle, length * (0.45 + rng() * 0.2), rng, w, h, depth - 1, out);
+      grow(
+        start.x,
+        start.y,
+        forkAngle,
+        length * (0.45 + rng() * 0.2),
+        rng,
+        w,
+        h,
+        depth - 1,
+        out
+      );
     }
   }
   return out;
@@ -167,6 +178,7 @@ git commit -m "feat(analyse): seeded RNG + fractal branch generation"
 ### Task 2: Network layout + branch life-cycle (pure)
 
 **Files:**
+
 - Modify: `src/analyse/plasmaNetwork.js` (append)
 - Test: `src/analyse/__tests__/plasmaNetwork.test.js` (append)
 
@@ -320,6 +332,7 @@ git commit -m "feat(analyse): network layout + staggered branch life-cycle"
 ### Task 3: Canvas painter (init, vignette, frame)
 
 **Files:**
+
 - Modify: `src/analyse/plasmaNetwork.js` (append)
 
 No unit test — canvas composition, verified in the browser in Task 4.
@@ -430,16 +443,40 @@ export function paintNetworkFrame(ctx, assets, tMs) {
         slot.baseLength,
         (slot.seed ^ (life.cycle * 0x9e3779b1)) >>> 0,
         w,
-        h,
+        h
       );
     }
 
     const a = life.alpha;
     for (const branch of slotCache.branches) {
       const drawLen = life.extent * branch.length;
-      strokeVisible(octx, branch, drawLen, t, slot.seed, 4.5, HALO + (0.28 * a).toFixed(3) + ")");
-      strokeVisible(octx, branch, drawLen, t, slot.seed, 2.0, MID + (0.5 * a).toFixed(3) + ")");
-      strokeVisible(octx, branch, drawLen, t, slot.seed, 0.9, CORE + (0.85 * a).toFixed(3) + ")");
+      strokeVisible(
+        octx,
+        branch,
+        drawLen,
+        t,
+        slot.seed,
+        4.5,
+        HALO + (0.28 * a).toFixed(3) + ")"
+      );
+      strokeVisible(
+        octx,
+        branch,
+        drawLen,
+        t,
+        slot.seed,
+        2.0,
+        MID + (0.5 * a).toFixed(3) + ")"
+      );
+      strokeVisible(
+        octx,
+        branch,
+        drawLen,
+        t,
+        slot.seed,
+        0.9,
+        CORE + (0.85 * a).toFixed(3) + ")"
+      );
     }
   }
 
@@ -470,6 +507,7 @@ git commit -m "feat(analyse): neon glow painter for the reforming network"
 ### Task 4: Rewire `AnalyseBetspot.jsx` + page copy
 
 **Files:**
+
 - Modify: `src/analyse/AnalyseBetspot.jsx`
 - Modify: `src/pages/AnalysePage.jsx`
 
@@ -496,26 +534,26 @@ import { BODY, CHIP, ENERGY_OPACITY, LAYER_URLS, STAGE, TOP_BAR } from "./spec.j
 Replace the async IIFE inside the first `useEffect` (the `loadPlasmaSheet`/`initFlipbook` block) with:
 
 ```js
-    // Build the procedural network once, size the canvas to the body, and paint
-    // the t=0 frame as the static image. The reveal loop then animates it.
-    (async () => {
-      try {
-        const canvas = canvasRef.current;
-        if (cancelled || !canvas) return;
+// Build the procedural network once, size the canvas to the body, and paint
+// the t=0 frame as the static image. The reveal loop then animates it.
+(async () => {
+  try {
+    const canvas = canvasRef.current;
+    if (cancelled || !canvas) return;
 
-        const w = BODY.width * STAGE.scale;
-        const h = BODY.height * STAGE.scale;
-        canvas.width = w;
-        canvas.height = h;
+    const w = BODY.width * STAGE.scale;
+    const h = BODY.height * STAGE.scale;
+    canvas.width = w;
+    canvas.height = h;
 
-        const assets = initNetwork(w, h);
-        motionRef.current = assets;
-        paintNetworkFrame(canvas.getContext("2d"), assets, 0);
-        setReady(true);
-      } catch (err) {
-        console.error("Failed to build plasma network", err);
-      }
-    })();
+    const assets = initNetwork(w, h);
+    motionRef.current = assets;
+    paintNetworkFrame(canvas.getContext("2d"), assets, 0);
+    setReady(true);
+  } catch (err) {
+    console.error("Failed to build plasma network", err);
+  }
+})();
 ```
 
 - [ ] **Step 3: Point the rAF loop and cleanup at the network painter**
@@ -523,21 +561,25 @@ Replace the async IIFE inside the first `useEffect` (the `loadPlasmaSheet`/`init
 Change the frame call
 
 ```js
-      paintFlipbookFrame(ctx, assets, now - start);
+paintFlipbookFrame(ctx, assets, now - start);
 ```
+
 to
+
 ```js
-      paintNetworkFrame(ctx, assets, now - start);
+paintNetworkFrame(ctx, assets, now - start);
 ```
 
 and the cleanup restore
 
 ```js
-      if (assets) paintFlipbookFrame(ctx, assets, 0);
+if (assets) paintFlipbookFrame(ctx, assets, 0);
 ```
+
 to
+
 ```js
-      if (assets) paintNetworkFrame(ctx, assets, 0);
+if (assets) paintNetworkFrame(ctx, assets, 0);
 ```
 
 - [ ] **Step 4: Update the page copy**
@@ -557,11 +599,13 @@ Blue body and outer glow are pure CSS. The inner energy is a procedurally
 ```bash
 npm test && npm run build
 ```
+
 Expected: passing; build succeeds.
 
 ```bash
 npm run dev
 ```
+
 Open `/analyse`, reveal, confirm: filaments branch from 3 hubs and visibly reform (grow/retract/reroute), loop indefinitely; hide → static; console clean.
 
 - [ ] **Step 6: Commit**
@@ -576,6 +620,7 @@ git commit -m "feat(analyse): drive the procedural network from the reveal loop"
 ### Task 5: Remove the flipbook + sprite asset
 
 **Files:**
+
 - Delete: `src/analyse/plasmaFlipbook.js`, `src/analyse/__tests__/plasmaFlipbook.test.js`
 - Delete: `public/analyse/plasma-frames.webp`, `scripts/encode-plasma-frames.py`
 
@@ -622,6 +667,7 @@ print("mean|d|:", round(float(d.mean()),1), " frac>30:", round(float((d>30).mean
       "-> non-trivial change = paths reforming")
 PY
 ```
+
 Expected: clear inter-frame change (paths differ across a cycle), confirming reform.
 
 - [ ] **Step 2: Behavioural checks**

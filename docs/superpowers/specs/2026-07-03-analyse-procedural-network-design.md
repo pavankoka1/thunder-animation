@@ -23,7 +23,7 @@ transition, neon border, reduced-motion→static, tab-hidden pause. Analyse-scop
 no `src/canvas/**` or `src/webgl/**` edits (pure geometry helpers reused read-only).
 
 **Accepted tradeoff:** this reads as clean drawn lightning-plasma, sparser than the
-dense pre-rendered artwork. It reproduces the *behaviour* (branching from 3 hubs,
+dense pre-rendered artwork. It reproduces the _behaviour_ (branching from 3 hubs,
 paths reforming), not a pixel-match of the frames.
 
 ## Coordinate space
@@ -52,11 +52,12 @@ array of branch polylines. Clipped to stay within the body bounds.
 
 **Network model (pure).**
 `buildNetwork(w, h, hubs, opts)` → a static list of **branch slots**: each slot
-is `{ hub, angle, baseLength, seed }` (the *identity* of a branch; its actual
+is `{ hub, angle, baseLength, seed }` (the _identity_ of a branch; its actual
 path is regenerated per life-cycle). ~6–9 slots per hub → ~20–27 total (tunable).
 
 **Life cycle (pure).**
 `branchLife(slotIndex, tSec)` → `{ cycle, extent, alpha }`:
+
 - `cycle = floor((tSec + phase) / PERIOD)` — increments each period; the new
   cycle triggers a **new route** (path regenerated with `seed ⊕ cycle`).
 - `extent ∈ [0,1]` — grow (ease-out) → hold → retract (ease-in) across the period.

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { branchLife, buildNetwork, generateBranch, makeRng, PERIOD } from "../plasmaNetwork.js";
+import {
+  branchLife,
+  buildNetwork,
+  generateBranch,
+  makeRng,
+  PERIOD,
+} from "../plasmaNetwork.js";
 
 describe("makeRng", () => {
   it("is deterministic for a seed and stays in [0,1)", () => {
