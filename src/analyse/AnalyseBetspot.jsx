@@ -21,7 +21,7 @@ export default function AnalyseBetspot() {
   const [ready, setReady] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(
-    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches
   );
 
   useEffect(() => {

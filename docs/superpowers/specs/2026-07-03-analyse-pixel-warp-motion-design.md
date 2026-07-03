@@ -4,7 +4,7 @@
 **Route:** `/analyse` (`src/pages/AnalysePage.jsx` → `src/analyse/AnalyseBetspot.jsx`)
 **Status:** Approved (displacement warp of the baked pattern; per-pixel canvas-2D)
 **Supersedes:** `2026-07-03-analyse-ambient-filament-motion-design.md` (the earlier
-re-stroke approach overlaid *new* strokes on a dimmed copy of the bake — rejected:
+re-stroke approach overlaid _new_ strokes on a dimmed copy of the bake — rejected:
 it added content on top instead of moving the painted pattern).
 
 ## Goal
@@ -21,11 +21,11 @@ brightness) is preserved exactly. All new code is analyse-scoped; no shared
 
 ## What "move like the SVGs" means (measured earlier this session)
 
-| Behaviour | Measurement (on 1064px SVGs) | Warp target (438px canvas) |
-| --- | --- | --- |
-| Hubs anchored | 3 clusters move ≤2% of width between phases | displacement ≈ 0 within r0 of each hub |
-| Local wander | median 2.8–4.5px, isotropic, **zero net drift** | max amplitude ~1.5–1.8px, oscillates around rest |
-| Frequency | slow evolution across phases | ~0.2–0.4 Hz temporal, low spatial frequency |
+| Behaviour     | Measurement (on 1064px SVGs)                    | Warp target (438px canvas)                       |
+| ------------- | ----------------------------------------------- | ------------------------------------------------ |
+| Hubs anchored | 3 clusters move ≤2% of width between phases     | displacement ≈ 0 within r0 of each hub           |
+| Local wander  | median 2.8–4.5px, isotropic, **zero net drift** | max amplitude ~1.5–1.8px, oscillates around rest |
+| Frequency     | slow evolution across phases                    | ~0.2–0.4 Hz temporal, low spatial frequency      |
 
 ## Architecture
 
@@ -52,6 +52,7 @@ Same public surface: `initWarpAssets(baked, hubs)` (was `initMotionAssets`) and
 `paintEnergyFrame(ctx, assets, tMs)`.
 
 `initWarpAssets(baked, hubs)` — runs once:
+
 - Caches the baked RGBA as a source `Uint8ClampedArray` (via a one-time
   `getImageData`).
 - Allocates one reusable output `ImageData`.
@@ -60,9 +61,10 @@ Same public surface: `initWarpAssets(baked, hubs)` (was `initMotionAssets`) and
   `Float32Array`. Hubs frozen; between-hub filaments free.
 
 `paintEnergyFrame(ctx, assets, tMs)` — per frame (pure math + one putImageData):
+
 1. Evaluate a smooth **flow field** `F(x,y,t)` on a coarse grid (every ~8px):
    a small sum of sinusoidal terms at differing phases/directions so the field
-   *oscillates around rest and never accumulates drift*. Deterministic, seedless.
+   _oscillates around rest and never accumulates drift_. Deterministic, seedless.
 2. Per output pixel, bilinearly interpolate `F` from the coarse grid, form
    `D = a(x,y) · F`, clamp `|D|` to `MAX_AMP` (~1.5–1.8px).
 3. Bilinearly sample the cached source at `(x − Dx, y − Dy)` (edge-clamped),

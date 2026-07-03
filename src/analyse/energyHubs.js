@@ -39,7 +39,13 @@ function boxBlurPass(src, dst, w, h, r, horizontal) {
  * @param {Float32Array} field row-major, any non-negative scale
  * @returns {Array<{x:number,y:number,strength:number}>} strongest first
  */
-export function detectHubs(field, w, h, count = 3, minSep = Math.round(Math.min(w, h) / 3)) {
+export function detectHubs(
+  field,
+  w,
+  h,
+  count = 3,
+  minSep = Math.round(Math.min(w, h) / 3)
+) {
   const r = Math.max(2, Math.round(Math.min(w, h) / 12));
   const a = Float32Array.from(field);
   const b = new Float32Array(w * h);

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** After the reveal on `/analyse`, the pattern already painted on the betspot canvas *moves* — its pixels are displaced by a slow flow field anchored at the 3 bright hubs, the way the reference SVG frames shift. No new strokes, no overlay.
+**Goal:** After the reveal on `/analyse`, the pattern already painted on the betspot canvas _moves_ — its pixels are displaced by a slow flow field anchored at the 3 bright hubs, the way the reference SVG frames shift. No new strokes, no overlay.
 
 **Architecture:** Replace the rejected re-stroke render path with a per-pixel displacement warp. `energyHubs.js` finds the 3 anchor hubs from the baked canvas's own luminance. `energyMotion.js` is rewritten: pure math (`sampleFlow`, `buildAnchorField`, `bilinearSample`) plus a `paintEnergyFrame` that, each frame, resamples the cached baked pixels through `displacement = anchor(x,y) · flow(x,y,t)` and `putImageData`s the result. `AnalyseBetspot.jsx`'s rAF wiring is unchanged (same `paintEnergyFrame(ctx, assets, tMs)` signature); only what builds `assets` changes.
 
@@ -19,6 +19,7 @@
 ### Task 1: Hub detection from the baked canvas (`energyHubs.js`)
 
 **Files:**
+
 - Create: `src/analyse/energyHubs.js`
 - Test: `src/analyse/__tests__/energyHubs.test.js`
 
@@ -88,7 +89,7 @@ Expected: FAIL — cannot resolve `../energyHubs.js`.
 
 - [ ] **Step 3: Implement `energyHubs.js`**
 
-Create `src/analyse/energyHubs.js` (the detector is lifted verbatim from the prior `filamentSegments.js`, plus a `canvasToField` helper that reads the *baked* pattern's luminance × alpha):
+Create `src/analyse/energyHubs.js` (the detector is lifted verbatim from the prior `filamentSegments.js`, plus a `canvasToField` helper that reads the _baked_ pattern's luminance × alpha):
 
 ```js
 /**
@@ -132,7 +133,13 @@ function boxBlurPass(src, dst, w, h, r, horizontal) {
  * @param {Float32Array} field row-major, any non-negative scale
  * @returns {Array<{x:number,y:number,strength:number}>} strongest first
  */
-export function detectHubs(field, w, h, count = 3, minSep = Math.round(Math.min(w, h) / 3)) {
+export function detectHubs(
+  field,
+  w,
+  h,
+  count = 3,
+  minSep = Math.round(Math.min(w, h) / 3)
+) {
   const r = Math.max(2, Math.round(Math.min(w, h) / 12));
   const a = Float32Array.from(field);
   const b = new Float32Array(w * h);
@@ -212,6 +219,7 @@ git commit -m "feat(analyse): hub detection from the baked pattern"
 ### Task 2: Rewrite `energyMotion.js` as a displacement warp
 
 **Files:**
+
 - Modify (replace contents): `src/analyse/energyMotion.js`
 - Modify (replace contents): `src/analyse/__tests__/energyMotion.test.js`
 
@@ -516,6 +524,7 @@ git commit -m "feat(analyse): displacement-warp render path (replaces re-stroke)
 ### Task 3: Rewire `AnalyseBetspot.jsx` + page copy
 
 **Files:**
+
 - Modify: `src/analyse/AnalyseBetspot.jsx`
 - Modify: `src/pages/AnalysePage.jsx`
 
@@ -540,31 +549,31 @@ import { canvasToField, detectHubs } from "./energyHubs.js";
 In the bake effect, replace the extraction block
 
 ```js
-        bakedRef.current = baked;
-        try {
-          const extraction = await extractSegments(data.web);
-          if (cancelled) return;
-          if (extraction.segments.length > 0) {
-            motionRef.current = initMotionAssets(baked, extraction);
-          } else {
-            console.warn("No filament segments — energy stays static");
-          }
-        } catch (err) {
-          console.warn("Filament segments unavailable — energy stays static", err);
-        }
+bakedRef.current = baked;
+try {
+  const extraction = await extractSegments(data.web);
+  if (cancelled) return;
+  if (extraction.segments.length > 0) {
+    motionRef.current = initMotionAssets(baked, extraction);
+  } else {
+    console.warn("No filament segments — energy stays static");
+  }
+} catch (err) {
+  console.warn("Filament segments unavailable — energy stays static", err);
+}
 ```
 
 with
 
 ```js
-        bakedRef.current = baked;
-        try {
-          const { field, w, h } = canvasToField(baked);
-          const hubs = detectHubs(field, w, h);
-          motionRef.current = initWarpAssets(baked, hubs);
-        } catch (err) {
-          console.warn("Warp assets unavailable — energy stays static", err);
-        }
+bakedRef.current = baked;
+try {
+  const { field, w, h } = canvasToField(baked);
+  const hubs = detectHubs(field, w, h);
+  motionRef.current = initWarpAssets(baked, hubs);
+} catch (err) {
+  console.warn("Warp assets unavailable — energy stays static", err);
+}
 ```
 
 The rAF-loop effect, its cleanup (redraw static bake), the visibility handler, and the reduced-motion listener are unchanged — `paintEnergyFrame(ctx, assets, tMs)` keeps the same signature.
@@ -591,12 +600,15 @@ Once revealed, the painted web itself slowly drifts and breathes in
 ```bash
 npm test && npm run build
 ```
+
 Expected: 14 tests pass; build succeeds (imports now resolve).
 
 ```bash
 npm run dev
 ```
+
 Open the `/analyse` route (Playwright or manually), click "Reveal energy", and confirm:
+
 1. Bake reveals as before; after the fade the pattern visibly drifts/breathes.
 2. The 3 bright clusters stay put; motion is strongest between them.
 3. Hide → the exact static bake returns; re-reveal restarts motion.
@@ -614,6 +626,7 @@ git commit -m "feat(analyse): drive the betspot warp from the reveal loop"
 ### Task 4: Remove dead code, restore `cellularEnergy.js`
 
 **Files:**
+
 - Delete: `src/analyse/filamentSegments.js`
 - Delete: `src/analyse/__tests__/filamentSegments.test.js`
 - Modify: `src/analyse/cellularEnergy.js` (revert the 5 `export` keywords)
@@ -638,9 +651,11 @@ const VIOLET = "rgb(150, 70, 225)";
 const MAGENTA = "rgb(210, 120, 245)";
 const WHITE = "rgb(250, 250, 255)";
 ```
+
 ```js
 const REACH_STOPS = [
 ```
+
 ```js
 const THICK_STOPS = [
 ```
@@ -662,6 +677,7 @@ git commit -m "chore(analyse): drop re-stroke segment code, restore cellularEner
 ### Task 5: Verification script + measured checks
 
 **Files:**
+
 - Modify: `scripts/verify-analyse-motion.py`
 
 - [ ] **Step 1: Switch the "motion present" assertion to a local-diff test**
@@ -695,6 +711,7 @@ With `npm run dev` running, reveal the energy, screenshot the `.analyse-betspot_
 ```bash
 python3 scripts/verify-analyse-motion.py frame_a.png frame_b.png
 ```
+
 Expected: `OK: anchored, moving, energy-conserving` (drift (0,0); moved fraction in band; area conserved).
 
 - [ ] **Step 3: Frame-time + fallbacks**
