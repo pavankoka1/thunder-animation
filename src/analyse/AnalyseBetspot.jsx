@@ -2,11 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { initGL, paintGLFrame, PLASMA_CONFIG } from "./plasmaGL.js";
 import { OUTER_CONFIG } from "./outerBorderGL.js";
 import { betspotShakeOffset } from "../canvas/plasma/betspotShake.js";
-import { BODY, CHIP, ENERGY_OPACITY, LAYER_URLS, STAGE, TOP_BAR } from "./spec.js";
+import {
+  BODY,
+  CHIP,
+  DEFAULT_SIZE_SCALE,
+  ENERGY_OPACITY,
+  LAYER_URLS,
+  STAGE,
+  SUPERSAMPLE,
+  THEMES,
+  TOP_BAR,
+} from "./spec.js";
 
 const SHAKE_STRENGTH = 3.4;
 
-function layerStyle(box, scale = STAGE.scale) {
+function layerStyle(box, scale) {
   return {
     left: box.x * scale,
     top: box.y * scale,
@@ -15,7 +25,13 @@ function layerStyle(box, scale = STAGE.scale) {
   };
 }
 
-export default function AnalyseBetspot({ config: configProp, outerConfig: outerConfigProp }) {
+export default function AnalyseBetspot({
+  config: configProp,
+  outerConfig: outerConfigProp,
+  theme = THEMES[0],
+  scale = DEFAULT_SIZE_SCALE,
+  playSignal = 0,
+}) {
   const canvasRef = useRef(null);
   const buttonRef = useRef(null);
   const glRef = useRef(null);
@@ -39,27 +55,31 @@ export default function AnalyseBetspot({ config: configProp, outerConfig: outerC
     return () => mq.removeEventListener("change", onChange);
   }, []);
 
-  const stageW = STAGE.width * STAGE.scale;
-  const stageH = STAGE.height * STAGE.scale;
+  const stageW = STAGE.width * scale;
+  const stageH = STAGE.height * scale;
+
+  useEffect(() => {
+    if (playSignal > 0) setRevealed(true);
+  }, [playSignal]);
 
   useEffect(() => {
     try {
       const canvas = canvasRef.current;
       if (canvas) {
-        const scale = STAGE.scale;
-        canvas.width = STAGE.width * scale;
-        canvas.height = STAGE.height * scale;
+        const ss = SUPERSAMPLE;
+        canvas.width = STAGE.width * ss;
+        canvas.height = STAGE.height * ss;
 
         const bodyOffset = [
-          BODY.x * scale,
-          canvas.height - (BODY.y + BODY.height) * scale,
+          BODY.x * ss,
+          canvas.height - (BODY.y + BODY.height) * ss,
         ];
-        const bodySize = [BODY.width * scale, BODY.height * scale];
+        const bodySize = [BODY.width * ss, BODY.height * ss];
 
         const rect = {
-          center: [(BODY.x + BODY.width / 2) * scale, (BODY.y + BODY.height / 2) * scale],
-          half: [(BODY.width / 2) * scale, (BODY.height / 2) * scale],
-          radius: BODY.cornerRadius * scale,
+          center: [(BODY.x + BODY.width / 2) * ss, (BODY.y + BODY.height / 2) * ss],
+          half: [(BODY.width / 2) * ss, (BODY.height / 2) * ss],
+          radius: BODY.cornerRadius * ss,
         };
 
         glRef.current = initGL(canvas, config, { bodyOffset, bodySize, rect }, outerConfig);
@@ -97,7 +117,9 @@ export default function AnalyseBetspot({ config: configProp, outerConfig: outerC
           env = 1 - q * q;
         }
         if (env > 0) {
-          const { x, y, rot } = betspotShakeOffset(tMs, { intensity: env * SHAKE_STRENGTH });
+          const { x, y, rot } = betspotShakeOffset(tMs, {
+            intensity: env * SHAKE_STRENGTH * scale,
+          });
           btn.style.transform = `translate(${x}px, ${y}px) rotate(${rot}deg)`;
         } else {
           btn.style.transform = "";
@@ -119,7 +141,7 @@ export default function AnalyseBetspot({ config: configProp, outerConfig: outerC
       paintGLFrame(assets, 0);
       if (buttonRef.current) buttonRef.current.style.transform = "";
     };
-  }, [revealed, ready, reducedMotion, config, outerConfig]);
+  }, [revealed, ready, reducedMotion, config, outerConfig, scale, playSignal]);
 
   const toggleEnergy = useCallback(() => {
     if (!ready) return;
@@ -131,17 +153,17 @@ export default function AnalyseBetspot({ config: configProp, outerConfig: outerC
       <button
         type="button"
         ref={buttonRef}
-        className="analyse-betspot"
+        className={`analyse-betspot analyse-betspot--${theme.key}`}
         style={{ width: stageW, height: stageH }}
         onClick={toggleEnergy}
         disabled={!ready}
-        aria-label="Toggle inner energy"
+        aria-label={`Toggle ${theme.label} inner energy`}
       >
         <div
-          className="analyse-betspot__layer analyse-betspot__body"
+          className={`analyse-betspot__layer analyse-betspot__body analyse-betspot__body--${theme.key}`}
           style={{
-            ...layerStyle(BODY),
-            borderRadius: BODY.cornerRadius * STAGE.scale,
+            ...layerStyle(BODY, scale),
+            borderRadius: BODY.cornerRadius * scale,
           }}
           aria-hidden
         />
@@ -154,21 +176,24 @@ export default function AnalyseBetspot({ config: configProp, outerConfig: outerC
             width: stageW,
             height: stageH,
             opacity: revealed ? ENERGY_OPACITY : 0,
+            transition: revealed ? "none" : "opacity 0.6s ease",
           }}
           aria-hidden
         />
-        <img
-          src={LAYER_URLS.topBar}
-          alt=""
-          className="analyse-betspot__layer analyse-betspot__topbar"
-          style={layerStyle(TOP_BAR)}
-          draggable={false}
+        <div
+          className={`analyse-betspot__layer analyse-betspot__topbar analyse-betspot__topbar--${theme.key}`}
+          style={{
+            ...layerStyle(TOP_BAR, scale),
+            borderRadius: (TOP_BAR.height / 2) * scale,
+            borderWidth: Math.max(1, 2 * scale),
+          }}
+          aria-hidden
         />
         <img
           src={LAYER_URLS.chip}
           alt=""
           className="analyse-betspot__layer analyse-betspot__chip"
-          style={layerStyle(CHIP)}
+          style={layerStyle(CHIP, scale)}
           draggable={false}
         />
         {!ready && <span className="analyse-betspot__status">Baking energy field…</span>}

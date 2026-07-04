@@ -44,12 +44,6 @@ const INNER_SLIDERS = [
   ],
 ];
 
-const INNER_COLORS = [
-  ["baseColor", "Base"],
-  ["haloColor", "Halo"],
-  ["coreColor", "Core"],
-];
-
 const OUTER_SLIDERS = [
   [
     "Travel & timing",
@@ -85,27 +79,9 @@ const OUTER_SLIDERS = [
   ],
 ];
 
-const OUTER_COLORS = [
-  ["coreColor", "Core"],
-  ["midColor", "Mid"],
-  ["haloColor", "Halo"],
-];
-
-const toHex = (rgb) =>
-  "#" + rgb.map((c) => Math.round(c * 255).toString(16).padStart(2, "0")).join("");
-const fromHex = (hex) => [
-  parseInt(hex.slice(1, 3), 16) / 255,
-  parseInt(hex.slice(3, 5), 16) / 255,
-  parseInt(hex.slice(5, 7), 16) / 255,
-];
-
-function ControlSection({ title, target, sliders, colors, defaults, extras, onChange }) {
+function ControlSection({ title, target, sliders, defaults, extras, onChange }) {
   const setNum = (key) => (e) => {
     target[key] = Number(e.target.value);
-    onChange();
-  };
-  const setColor = (key) => (e) => {
-    target[key] = fromHex(e.target.value);
     onChange();
   };
   const reset = () => {
@@ -144,24 +120,6 @@ function ControlSection({ title, target, sliders, colors, defaults, extras, onCh
       ))}
 
       {extras}
-
-      {colors?.length ? (
-        <fieldset className="plasma-controls__group">
-          <legend>Colour</legend>
-          {colors.map(([key, label]) => (
-            <label className="plasma-controls__row" key={key}>
-              <span>{label}</span>
-              <input
-                type="color"
-                value={toHex(target[key])}
-                onInput={setColor(key)}
-                onChange={setColor(key)}
-              />
-              <output>{toHex(target[key])}</output>
-            </label>
-          ))}
-        </fieldset>
-      ) : null}
     </section>
   );
 }
@@ -232,7 +190,6 @@ export default function PlasmaControls({ config, outerConfig }) {
                 title="Outer border"
                 target={outerConfig}
                 sliders={OUTER_SLIDERS}
-                colors={OUTER_COLORS}
                 defaults={OUTER_CONFIG}
                 extras={easingRow}
                 onChange={force}
@@ -241,7 +198,6 @@ export default function PlasmaControls({ config, outerConfig }) {
                 title="Inner energy"
                 target={config}
                 sliders={INNER_SLIDERS}
-                colors={INNER_COLORS}
                 defaults={PLASMA_CONFIG}
                 onChange={force}
               />

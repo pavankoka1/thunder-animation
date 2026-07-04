@@ -68,6 +68,7 @@ uniform float u_crispW, u_crispInt;
 uniform vec3 u_baseColor, u_haloColor, u_coreColor;
 uniform float u_baseInt, u_haloInt, u_coreInt, u_coreThresh;
 uniform float u_edgeR, u_edgeSoft;
+uniform float u_opacity;
 
 float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
 vec2 hash2(vec2 p){
@@ -134,7 +135,7 @@ void main(){
   vig *= vig;
 
   float a = clamp(max(max(col.r, col.g), col.b), 0.0, 1.0) * vig * inBody;
-  o_color = vec4(col * vig * inBody, a);
+  o_color = vec4(col * vig * inBody, a) * u_opacity;
 }
 `;
 
@@ -180,6 +181,7 @@ const UNIFORM_NAMES = [
   "u_coreThresh",
   "u_edgeR",
   "u_edgeSoft",
+  "u_opacity",
 ];
 
 export function initGL(canvas, config = {}, layout, outerConfig) {
@@ -252,6 +254,11 @@ export function paintGLFrame(assets, tMs) {
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
+  const timeSec = elapsedSeconds(tMs);
+  const raw = Math.max(0, Math.min(1, tMs / outerCfg.formationMs));
+  const ease = EASINGS[outerCfg.easing] || EASINGS.linear;
+  const reveal = ease(raw);
+
   gl.useProgram(program);
   gl.uniform2f(u.u_res, body.size[0], body.size[1]);
   gl.uniform2f(u.u_bodyOffset, body.offset[0], body.offset[1]);
@@ -282,12 +289,9 @@ export function paintGLFrame(assets, tMs) {
   gl.uniform1f(u.u_coreThresh, cfg.coreThreshold);
   gl.uniform1f(u.u_edgeR, cfg.edgeRadius);
   gl.uniform1f(u.u_edgeSoft, cfg.edgeSoftness);
+  gl.uniform1f(u.u_opacity, reveal);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-  const timeSec = elapsedSeconds(tMs);
-  const raw = Math.max(0, Math.min(1, tMs / outerCfg.formationMs));
-  const ease = EASINGS[outerCfg.easing] || EASINGS.linear;
-  const reveal = ease(raw);
   gl.useProgram(outerProgram);
   applyOuterUniforms(gl, ou, outerCfg, { timeSec, reveal, w, h, rect });
   gl.drawArrays(gl.TRIANGLES, 0, 3);

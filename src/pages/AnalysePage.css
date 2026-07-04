@@ -45,6 +45,23 @@
   gap: 16px;
 }
 
+.analyse-page__row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 28px;
+  width: 100%;
+  max-width: 960px;
+}
+
+.analyse-page__toolbar {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
 .analyse-betspot {
   position: relative;
   padding: 0;
@@ -69,12 +86,42 @@
 .analyse-betspot__body {
   z-index: 0;
   pointer-events: none;
+}
+
+.analyse-betspot__body--blue {
   background:
     radial-gradient(115% 85% at 50% 12%, #a6e0ff 0%, rgba(166, 224, 255, 0) 55%),
     linear-gradient(180deg, #74c2f6 0%, #5a93ef 45%, #5566d8 78%, #6a56cf 100%);
   box-shadow:
     0 0 12px 2px rgba(120, 170, 255, 0.45),
     0 0 30px 8px rgba(110, 90, 220, 0.28);
+}
+
+.analyse-betspot__body--green {
+  background:
+    radial-gradient(115% 85% at 50% 12%, #b6ffce 0%, rgba(182, 255, 206, 0) 55%),
+    linear-gradient(180deg, #58e08a 0%, #35c46e 45%, #1fa85c 78%, #189e6a 100%);
+  box-shadow:
+    0 0 12px 2px rgba(90, 230, 140, 0.45),
+    0 0 30px 8px rgba(40, 200, 120, 0.28);
+}
+
+.analyse-betspot__body--yellow {
+  background:
+    radial-gradient(115% 85% at 50% 12%, #fff2b0 0%, rgba(255, 242, 176, 0) 55%),
+    linear-gradient(180deg, #ffd85a 0%, #f9c33a 45%, #f0a91f 78%, #e69a18 100%);
+  box-shadow:
+    0 0 12px 2px rgba(255, 210, 90, 0.45),
+    0 0 30px 8px rgba(230, 170, 40, 0.28);
+}
+
+.analyse-betspot__body--pink {
+  background:
+    radial-gradient(115% 85% at 50% 12%, #ffc7e6 0%, rgba(255, 199, 230, 0) 55%),
+    linear-gradient(180deg, #ff74c2 0%, #f65a93 45%, #e0447f 78%, #cf56a9 100%);
+  box-shadow:
+    0 0 12px 2px rgba(255, 120, 200, 0.45),
+    0 0 30px 8px rgba(220, 90, 180, 0.28);
 }
 
 .analyse-betspot__energy {
@@ -123,6 +170,25 @@
 .analyse-betspot__topbar {
   z-index: 3;
   pointer-events: none;
+  box-sizing: border-box;
+  border-style: solid;
+  background: #13324a;
+}
+
+.analyse-betspot__topbar--blue {
+  border-color: #29b6e8;
+}
+
+.analyse-betspot__topbar--green {
+  border-color: #34d17e;
+}
+
+.analyse-betspot__topbar--yellow {
+  border-color: #f5c542;
+}
+
+.analyse-betspot__topbar--pink {
+  border-color: #ff5fb0;
 }
 
 .analyse-betspot__chip {

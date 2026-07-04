@@ -1,7 +1,9 @@
+export const SUPERSAMPLE = 3;
+
 export const STAGE = {
   width: 178,
   height: 106,
-  scale: 3,
+  scale: SUPERSAMPLE,
 };
 
 export const BODY = {
@@ -27,8 +29,6 @@ export const CHIP = {
 };
 
 export const LAYER_URLS = {
-  body: "/analyse/body.png",
-  topBar: "/analyse/top-bar.png",
   chip: "/analyse/chip.png",
   reference: "/analyse/reference.png",
 };
@@ -37,3 +37,12 @@ export const ENERGY_OPACITY = 1;
 
 export const FORMATION_MS = 1500;
 export const BORDER_RAMP_MS = 260;
+
+export const DEFAULT_SIZE_SCALE = 1;
+
+export const THEMES = [
+  { key: "blue", label: "Blue", inner: {}, outer: {} },
+  { key: "green", label: "Green", inner: {}, outer: {} },
+  { key: "yellow", label: "Yellow", inner: {}, outer: {} },
+  { key: "pink", label: "Pink", inner: {}, outer: {} },
+];
