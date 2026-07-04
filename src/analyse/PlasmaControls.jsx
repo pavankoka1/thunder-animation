@@ -1,59 +1,72 @@
 import { useReducer } from "react";
-import { DEFAULT_CONFIG } from "./boltField.js";
+import { PLASMA_CONFIG } from "./plasmaGL.js";
 
 /** Slider groups over the shared, mutable `config` object the renderer reads. */
 const SLIDERS = [
   [
-    "Structure",
+    "Density / structure",
     [
-      ["clusterCount", "Clusters", 1, 6, 1],
-      ["clusterSpread", "Cluster spread", 0, 0.7, 0.01],
-      ["branchChance", "Branch density", 0, 1, 0.02],
-      ["maxDepth", "Max depth", 1, 5, 1],
-      ["trunkJitter", "Jaggedness", 4, 60, 1],
-      ["branchLenMax", "Branch length", 20, 120, 1],
+      ["cellScaleX", "Bolt density X", 3, 18, 0.5],
+      ["cellScaleY", "Bolt density Y", 2, 10, 0.5],
+      ["boltWidth", "Bolt thickness", 0.05, 0.4, 0.005],
+      ["boltSharp", "Bolt crispness", 0.5, 5, 0.1],
+      ["boltVary", "Bolt variety", 0, 1, 0.02],
     ],
   ],
   [
-    "Thickness / glow",
+    "Branches / filaments",
     [
-      ["haloWidth", "Halo width", 1, 24, 0.5],
-      ["midWidth", "Mid width", 0.5, 12, 0.5],
-      ["coreWidth", "Core width", 0.3, 6, 0.1],
-      ["haloAlpha", "Halo intensity", 0, 0.6, 0.01],
-      ["midAlpha", "Mid intensity", 0, 0.8, 0.01],
-      ["coreAlpha", "Core intensity", 0, 1, 0.01],
+      ["branchStrength", "Branch amount", 0, 1, 0.02],
+      ["branchScale", "Branch density", 2, 16, 0.5],
+      ["branchSharp", "Branch thinness", 1, 8, 0.1],
+      ["filStrength", "Fine fill", 0, 1, 0.02],
+      ["crispWidth", "Crisp line width", 0.005, 0.12, 0.002],
+      ["crispIntensity", "Crisp finish", 0, 1.2, 0.02],
     ],
   ],
   [
-    "Motion (ms)",
+    "Glow",
     [
-      ["strikeMs", "Strike duration", 200, 3000, 50],
-      ["holdMs", "Hold", 0, 4000, 50],
+      ["haloIntensity", "Halo intensity", 0, 2, 0.02],
+      ["coreIntensity", "Core intensity", 0, 2, 0.02],
+      ["coreThreshold", "Core threshold", 0.2, 0.95, 0.01],
+      ["baseIntensity", "Base fill", 0, 1, 0.02],
+    ],
+  ],
+  [
+    "Motion",
+    [
+      ["timeScale", "Overall speed", 0, 3, 0.05],
+      ["seedSpeed", "Bolt re-route", 0, 1.5, 0.02],
+      ["seedDrift", "Re-route amount", 0, 0.5, 0.01],
+      ["warpAmount", "Jaggedness", 0, 3, 0.05],
     ],
   ],
 ];
 
 const COLORS = [
+  ["baseColor", "Base"],
   ["haloColor", "Halo"],
-  ["midColor", "Mid"],
   ["coreColor", "Core"],
 ];
 
+// Shader colours are 0..1 floats; the <input type="color"> uses 0..255 hex.
 const toHex = (rgb) =>
-  "#" + rgb.map((c) => Math.round(c).toString(16).padStart(2, "0")).join("");
+  "#" +
+  rgb
+    .map((c) => Math.round(c * 255).toString(16).padStart(2, "0"))
+    .join("");
 const fromHex = (hex) => [
-  parseInt(hex.slice(1, 3), 16),
-  parseInt(hex.slice(3, 5), 16),
-  parseInt(hex.slice(5, 7), 16),
+  parseInt(hex.slice(1, 3), 16) / 255,
+  parseInt(hex.slice(3, 5), 16) / 255,
+  parseInt(hex.slice(5, 7), 16) / 255,
 ];
 
 /**
- * Live control panel over the bolt-plasma `config`. Mutates the same object the
- * renderer reads each frame, so edits apply immediately. `onRestrike` bumps the
- * seed to force a fresh bolt-field.
+ * Live control panel over the plasma `config`. Mutates the same object the
+ * renderer reads each frame, so slider/colour edits apply immediately.
  */
-export default function PlasmaControls({ config, onRestrike }) {
+export default function PlasmaControls({ config }) {
   const [, force] = useReducer((n) => n + 1, 0);
 
   const setNum = (key) => (e) => {
@@ -65,13 +78,7 @@ export default function PlasmaControls({ config, onRestrike }) {
     force();
   };
   const reset = () => {
-    Object.assign(config, structuredClone(DEFAULT_CONFIG));
-    onRestrike?.();
-    force();
-  };
-  const randomize = () => {
-    config.seed = (Math.random() * 0xffffffff) >>> 0;
-    onRestrike?.();
+    Object.assign(config, structuredClone(PLASMA_CONFIG));
     force();
   };
 
@@ -79,16 +86,6 @@ export default function PlasmaControls({ config, onRestrike }) {
     <details className="plasma-controls" open>
       <summary>Plasma controls</summary>
       <div className="plasma-controls__actions">
-        <button type="button" className="analyse-btn" onClick={randomize}>
-          Randomize
-        </button>
-        <button
-          type="button"
-          className="analyse-btn"
-          onClick={() => (onRestrike?.(), force())}
-        >
-          Re-strike
-        </button>
         <button type="button" className="analyse-btn" onClick={reset}>
           Reset
         </button>

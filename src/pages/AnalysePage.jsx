@@ -1,18 +1,14 @@
 import { useRef } from "react";
 import AnalyseBetspot from "../analyse/AnalyseBetspot.jsx";
 import PlasmaControls from "../analyse/PlasmaControls.jsx";
-import { DEFAULT_CONFIG } from "../analyse/boltField.js";
+import { PLASMA_CONFIG } from "../analyse/plasmaGL.js";
 import "./AnalysePage.css";
 
 export default function AnalysePage() {
   // One mutable config shared by the renderer and the control panel.
   const configRef = useRef(null);
-  if (!configRef.current) configRef.current = structuredClone(DEFAULT_CONFIG);
+  if (!configRef.current) configRef.current = structuredClone(PLASMA_CONFIG);
   const config = configRef.current;
-
-  const restrike = () => {
-    config.seed = (Math.imul(config.seed | 0, 1664525) + 1013904223) >>> 0;
-  };
 
   return (
     <div className="analyse-page">
@@ -23,15 +19,15 @@ export default function AnalysePage() {
         <h1 className="analyse-page__title">Analyse — inner energy</h1>
         <p className="analyse-page__subtitle">
           Blue body and outer glow are pure CSS. The inner energy is drawn procedurally in
-          WebGL — branching bolt-trees strike out from central clusters with tapering
-          thickness, then re-strike along new paths. No images. Tune it live with the
-          controls below. Click the spot to toggle.
+          WebGL — an electric-voronoi plasma whose cell borders form branching bolts that
+          re-route over time, with finer ridged filaments and a crisp core line. No images.
+          Tune it live with the controls below. Click the spot to toggle.
         </p>
       </header>
 
       <AnalyseBetspot config={config} />
 
-      <PlasmaControls config={config} onRestrike={restrike} />
+      <PlasmaControls config={config} />
 
       <section className="analyse-page__notes">
         <h2>Layers (bottom → top)</h2>
@@ -40,10 +36,10 @@ export default function AnalysePage() {
             <strong>Body</strong> — CSS blue gradient + outer glow (no PNG)
           </li>
           <li>
-            <strong>Inner energy</strong> — WebGL; branching bolt-trees from central
-            clusters (<code>boltField.js</code> + <code>boltGL.js</code>), 3 glow passes
-            for thickness, grown then re-struck, edge-faded and screen-blended over the
-            body
+            <strong>Inner energy</strong> — WebGL electric-voronoi plasma (
+            <code>plasmaGL.js</code>): drifting cell borders form the bolts, ridged
+            filaments add branches, a thin core line crisps them up — edge-faded and
+            screen-blended over the body
           </li>
           <li>
             <strong>Neon border</strong> — CSS glow, same colours as{" "}
