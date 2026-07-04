@@ -85,6 +85,9 @@
   pointer-events: none;
   mix-blend-mode: screen;
   transition: opacity 1.5s cubic-bezier(0.22, 0.72, 0.2, 1);
+  /* fade the WebGL bolts at the edges so energy stays contained in the spot */
+  -webkit-mask-image: radial-gradient(120% 120% at 50% 50%, #000 55%, transparent 92%);
+  mask-image: radial-gradient(120% 120% at 50% 50%, #000 55%, transparent 92%);
 }
 
 .analyse-betspot__border {
@@ -207,4 +210,66 @@
 .analyse-page__notes code {
   font-size: 0.78rem;
   color: #c9a8ff;
+}
+
+.plasma-controls {
+  width: 100%;
+  max-width: 520px;
+  margin: 4px auto 0;
+  border: 1px solid #333;
+  border-radius: 8px;
+  background: #141414;
+  padding: 8px 12px 12px;
+  color: #cfcfcf;
+  font-size: 0.8rem;
+}
+
+.plasma-controls > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #d9c7ff;
+  padding: 4px 0;
+}
+
+.plasma-controls__actions {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.plasma-controls__group {
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  margin: 10px 0 0;
+  padding: 6px 10px 10px;
+}
+
+.plasma-controls__group legend {
+  padding: 0 6px;
+  color: #9a9a9a;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.plasma-controls__row {
+  display: grid;
+  grid-template-columns: 110px 1fr 56px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.plasma-controls__row span {
+  color: #bbb;
+}
+
+.plasma-controls__row output {
+  text-align: right;
+  color: #d9c7ff;
+  font-variant-numeric: tabular-nums;
+}
+
+.plasma-controls__row input[type="range"] {
+  width: 100%;
 }
