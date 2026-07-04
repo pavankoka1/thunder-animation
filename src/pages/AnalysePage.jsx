@@ -10,10 +10,10 @@ export default function AnalysePage() {
         </a>
         <h1 className="analyse-page__title">Analyse — inner energy</h1>
         <p className="analyse-page__subtitle">
-          Blue body and outer glow are pure CSS. The inner energy is a few dense plasma
-          frames: each is held, then briefly crossfaded to the next, so the bright bolts
-          re-strike along new paths in place while the cell structure stays put. Edge-faded
-          and screen-blended over the body. Click to toggle.
+          Blue body and outer glow are pure CSS. The inner energy is drawn procedurally in
+          a WebGL shader — an electric-voronoi plasma whose cell borders are the bolts;
+          the seeds drift over time so the bolts re-strike along new paths. No images.
+          Edge-faded and screen-blended over the body. Click to toggle.
         </p>
       </header>
 
@@ -26,9 +26,9 @@ export default function AnalysePage() {
             <strong>Body</strong> — CSS blue gradient + outer glow (no PNG)
           </li>
           <li>
-            <strong>Inner energy</strong> — canvas; a few dense plasma frames
-            (<code>plasmaFrames.js</code>) held and briefly crossfaded so the bolts re-strike
-            in place, edge-faded and screen-blended over the body
+            <strong>Inner energy</strong> — WebGL; a procedural electric-voronoi plasma
+            (<code>plasmaGL.js</code>) whose drifting cell borders are the re-striking bolts,
+            edge-faded and screen-blended over the body
           </li>
           <li>
             <strong>Neon border</strong> — CSS glow, same colours as{" "}

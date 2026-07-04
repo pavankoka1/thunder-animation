@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { initFrames, loadFrames, paintFramesFrame } from "./plasmaFrames.js";
+import { initGL, paintGLFrame } from "./plasmaGL.js";
 import { BODY, CHIP, ENERGY_OPACITY, LAYER_URLS, STAGE, TOP_BAR } from "./spec.js";
-
-const FRAMES_URL = "/analyse/plasma-frames.webp";
-const FRAME_COUNT = 10;
 
 function layerStyle(box, scale = STAGE.scale) {
   return {
@@ -34,52 +31,34 @@ export default function AnalyseBetspot() {
   const stageH = STAGE.height * STAGE.scale;
 
   useEffect(() => {
-    let cancelled = false;
-
-    // Load the dense plasma frames once, size the canvas to the body, and paint
-    // the first frame static. The reveal loop then holds each frame and briefly
-    // crossfades to the next, so the bolts re-strike in place while the cell
-    // structure stays put.
-    (async () => {
-      try {
-        const img = await loadFrames(FRAMES_URL);
-        if (cancelled) return;
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const w = BODY.width * STAGE.scale;
-        const h = BODY.height * STAGE.scale;
-        canvas.width = w;
-        canvas.height = h;
-
-        const assets = initFrames(img, w, h, FRAME_COUNT);
-        motionRef.current = assets;
-        paintFramesFrame(canvas.getContext("2d"), assets, 0);
+    // Build the procedural WebGL plasma once, size the canvas to the body, and
+    // paint the t=0 frame. The reveal loop then drives the shader time so the
+    // voronoi bolts re-strike along new paths — no images, all drawn in-shader.
+    try {
+      const canvas = canvasRef.current;
+      if (canvas) {
+        canvas.width = BODY.width * STAGE.scale;
+        canvas.height = BODY.height * STAGE.scale;
+        motionRef.current = initGL(canvas);
+        paintGLFrame(motionRef.current, 0);
         setReady(true);
-      } catch (err) {
-        console.error("Failed to load plasma frames", err);
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    } catch (err) {
+      console.error("Failed to init WebGL plasma", err);
+    }
   }, []);
 
-  // Ambient motion — repaints only the energy canvas while revealed.
-  // Falls back to the static bake when hidden, unmounted, extraction
-  // failed, or the user prefers reduced motion.
+  // Ambient motion — advances the shader time while revealed. Pauses when the
+  // tab is hidden or the user prefers reduced motion; repaints t=0 on cleanup.
   useEffect(() => {
-    const canvas = canvasRef.current;
     const assets = motionRef.current;
-    if (!revealed || !ready || !canvas || !assets || reducedMotion) return undefined;
+    if (!revealed || !ready || !assets || reducedMotion) return undefined;
 
-    const ctx = canvas.getContext("2d");
     const start = performance.now();
     let raf = 0;
 
     const frame = (now) => {
-      paintFramesFrame(ctx, assets, now - start);
+      paintGLFrame(assets, now - start);
       raf = requestAnimationFrame(frame);
     };
 
@@ -94,7 +73,7 @@ export default function AnalyseBetspot() {
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onVisibility);
-      if (assets) paintFramesFrame(ctx, assets, 0);
+      paintGLFrame(assets, 0);
     };
   }, [revealed, ready, reducedMotion]);
 
