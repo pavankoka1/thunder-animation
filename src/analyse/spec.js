@@ -38,7 +38,7 @@ export const ENERGY_OPACITY = 1;
 export const FORMATION_MS = 1500;
 export const BORDER_RAMP_MS = 260;
 
-export const DEFAULT_SIZE_SCALE = 1;
+export const DEFAULT_SIZE_SCALE = 2;
 
 export const THEMES = [
   { key: "blue", label: "Blue", inner: {}, outer: {} },

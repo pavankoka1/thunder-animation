@@ -15,29 +15,35 @@ export const PLASMA_CONFIG = {
 
   cellScaleX: 9.5,
   cellScaleY: 4.6,
-  boltWidth: 0.15,
-  boltSharp: 2.3,
+  boltWidth: 0.19,
+  boltSharp: 2.1,
   boltVary: 0.5,
 
-  branchStrength: 0.6,
+  branchStrength: 0.7,
   branchScale: 7.0,
   branchSharp: 3.6,
 
-  filStrength: 0.7,
+  filStrength: 0.85,
   filScale: 3.4,
-  filLo: 0.52,
+  filLo: 0.46,
   filHi: 0.95,
 
-  crispWidth: 0.03,
-  crispIntensity: 0.95,
+  crispWidth: 0.035,
+  crispIntensity: 1.05,
+
+  nodeSize: 0.33,
+  nodeSharp: 2.0,
+  nodeIntensity: 1.9,
+  cloudScale: 1.6,
+  cloudAmount: 0.9,
 
   baseColor: [0.42, 0.14, 0.72],
   haloColor: [0.66, 0.32, 1.0],
   coreColor: [0.98, 0.94, 1.0],
-  baseIntensity: 0.42,
-  haloIntensity: 1.15,
-  coreIntensity: 0.9,
-  coreThreshold: 0.6,
+  baseIntensity: 0.5,
+  haloIntensity: 1.3,
+  coreIntensity: 1.05,
+  coreThreshold: 0.5,
 
   edgeRadius: 0.72,
   edgeSoftness: 1.06,
@@ -65,6 +71,7 @@ uniform float u_boltWidth, u_boltSharp, u_boltVary;
 uniform float u_branchStr, u_branchScale, u_branchSharp;
 uniform float u_filStrength, u_filScale, u_filLo, u_filHi;
 uniform float u_crispW, u_crispInt;
+uniform float u_nodeSize, u_nodeSharp, u_nodeInt, u_cloudScale, u_cloudAmount;
 uniform vec3 u_baseColor, u_haloColor, u_coreColor;
 uniform float u_baseInt, u_haloInt, u_coreInt, u_coreThresh;
 uniform float u_edgeR, u_edgeSoft;
@@ -95,7 +102,7 @@ void main(){
   p += (w - 0.5) * u_warpAmount;
 
   vec2 g = floor(p), f = p - g;
-  float F1 = 9.0, F2 = 9.0;
+  float F1 = 9.0, F2 = 9.0, F3 = 9.0;
   vec2 nearCell = g;
   for (int y = -1; y <= 1; y++){
     for (int x = -1; x <= 1; x++){
@@ -103,11 +110,16 @@ void main(){
       vec2 seed = hash2(g + off);
       vec2 pos = off + 0.5 + u_seedDrift * sin(t*u_seedSpeed + 6.2831*seed);
       float d = length(pos - f);
-      if (d < F1) { F2 = F1; F1 = d; nearCell = g + off; } else if (d < F2) { F2 = d; }
+      if (d < F1) { F3 = F2; F2 = F1; F1 = d; nearCell = g + off; }
+      else if (d < F2) { F3 = F2; F2 = d; }
+      else if (d < F3) { F3 = d; }
     }
   }
 
   float edge = F2 - F1;
+
+  float junction = 1.0 - smoothstep(0.0, u_nodeSize, F3 - F1);
+  float node = pow(clamp(junction, 0.0, 1.0), u_nodeSharp);
 
   float cellVar = 1.0 + u_boltVary * (hash(nearCell + 3.3) - 0.5) * 2.0;
   float bw = max(0.01, u_boltWidth * cellVar);
@@ -124,11 +136,15 @@ void main(){
 
   float crisp = (1.0 - smoothstep(0.0, u_crispW, edge)) * u_crispInt;
 
-  vec3 base = u_baseColor * u_baseInt;
+  float cloud = fbm(p * u_cloudScale + t * u_warpSpeed * 0.7);
+  cloud = mix(1.0, cloud, u_cloudAmount);
+
+  vec3 base = u_baseColor * u_baseInt * (0.5 + cloud);
   vec3 halo = u_haloColor * bolt * u_haloInt;
   vec3 core = u_coreColor * u_coreInt * pow(clamp((bolt - u_coreThresh) / (1.0 - u_coreThresh), 0.0, 1.0), 2.0);
   vec3 crispCol = u_coreColor * crisp;
-  vec3 col = base + halo + core + crispCol;
+  vec3 nodeCol = mix(u_haloColor, u_coreColor, node) * node * u_nodeInt;
+  vec3 col = base + halo + core + crispCol + nodeCol;
 
   float dist = distance(uv, vec2(0.5)) / u_edgeR;
   float vig = clamp(u_edgeSoft - dist, 0.0, 1.0);
@@ -172,6 +188,11 @@ const UNIFORM_NAMES = [
   "u_filHi",
   "u_crispW",
   "u_crispInt",
+  "u_nodeSize",
+  "u_nodeSharp",
+  "u_nodeInt",
+  "u_cloudScale",
+  "u_cloudAmount",
   "u_baseColor",
   "u_haloColor",
   "u_coreColor",
@@ -280,6 +301,11 @@ export function paintGLFrame(assets, tMs) {
   gl.uniform1f(u.u_filHi, cfg.filHi);
   gl.uniform1f(u.u_crispW, cfg.crispWidth);
   gl.uniform1f(u.u_crispInt, cfg.crispIntensity);
+  gl.uniform1f(u.u_nodeSize, cfg.nodeSize);
+  gl.uniform1f(u.u_nodeSharp, cfg.nodeSharp);
+  gl.uniform1f(u.u_nodeInt, cfg.nodeIntensity);
+  gl.uniform1f(u.u_cloudScale, cfg.cloudScale);
+  gl.uniform1f(u.u_cloudAmount, cfg.cloudAmount);
   gl.uniform3fv(u.u_baseColor, cfg.baseColor);
   gl.uniform3fv(u.u_haloColor, cfg.haloColor);
   gl.uniform3fv(u.u_coreColor, cfg.coreColor);

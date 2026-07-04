@@ -34,6 +34,16 @@ const INNER_SLIDERS = [
     ],
   ],
   [
+    "Nodes / haze",
+    [
+      ["nodeSize", "Node size", 0.05, 0.6, 0.01],
+      ["nodeSharp", "Node sharpness", 0.5, 5, 0.1],
+      ["nodeIntensity", "Node glow", 0, 3, 0.05],
+      ["cloudScale", "Haze scale", 0.5, 5, 0.1],
+      ["cloudAmount", "Haze amount", 0, 1.5, 0.02],
+    ],
+  ],
+  [
     "Motion",
     [
       ["timeScale", "Overall speed", 0, 3, 0.05],
