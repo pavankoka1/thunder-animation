@@ -2,10 +2,15 @@
  * Extracted-web crossfade motion for the analyse betspot.
  *
  * The plasma filament web is extracted from the artwork frames (build-time) as
- * vector polylines; ~10 keyframes are crossfaded here so the dense web is always
- * present and its paths re-route in place, looping seamlessly. Painted as
- * violet-halo / white-core glow strokes — no runtime image.
+ * vector polylines. Each keyframe's web is rendered once through the original
+ * dense-glow paint (`generateEnergyCanvas` — violet halo / magenta mid /
+ * white-hot core, radially masked), then the resulting glow frames are
+ * crossfaded in rAF so the web stays present while its paths re-route, looping.
+ * No runtime image; the glow frames are baked in code at load from the vectors.
  */
+
+import { generateEnergyCanvas } from "./cellularEnergy.js";
+import { BODY, STAGE } from "./spec.js";
 
 /** Cover-fit mapping: frame-space (fw×fh) point → target via X=(x-offX)·scale. */
 export function coverTransform(fw, fh, tw, th) {
@@ -28,12 +33,11 @@ export function keyframeAt(tMs, loopMs, count) {
 
 /** Loop length (ms) for the 10-keyframe crossfade. Tune here. */
 const LOOP_MS = 6000;
-/** Glow passes: [width, "rgb(...)", alphaScale]. Tuned bright over blue. */
-const PASSES = [
-  [4.0, "rgb(150,70,225)", 0.5],
-  [2.0, "rgb(210,120,245)", 0.62],
-  [0.9, "rgb(250,252,255)", 0.98],
-];
+/** White filament stroke width (px) that feeds the glow paint. Tune for density. */
+const WEB_STROKE = 3.2;
+/** Soften the web so the violet halo pass has material (matches the original
+ * dense soft-grayscale web the paint was designed for). */
+const WEB_BLUR_PX = 1.4;
 
 let pathsCache = null;
 
@@ -53,85 +57,61 @@ function makeCanvas(w, h) {
   return c;
 }
 
-function makeVignette(w, h) {
+/**
+ * Rasterize one keyframe's cover-transformed polylines into a white-on-transparent
+ * "web" canvas — the input the glow paint expects.
+ */
+function rasterizeWeb(segs, transform, w, h) {
+  const { scale, offX, offY } = transform;
   const c = makeCanvas(w, h);
   const ctx = c.getContext("2d");
-  const cx = w * 0.5;
-  const cy = h * 0.5;
-  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.hypot(cx, cy));
-  g.addColorStop(0, "rgba(255,255,255,1)");
-  g.addColorStop(0.6, "rgba(255,255,255,0.92)");
-  g.addColorStop(0.85, "rgba(255,255,255,0.5)");
-  g.addColorStop(1, "rgba(255,255,255,0.08)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = "rgb(255,255,255)";
+  ctx.lineWidth = WEB_STROKE;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.filter = WEB_BLUR_PX > 0 ? `blur(${WEB_BLUR_PX}px)` : "none";
+  ctx.beginPath();
+  for (const poly of segs) {
+    for (let i = 0; i < poly.length; i += 1) {
+      const X = (poly[i][0] - offX) * scale;
+      const Y = (poly[i][1] - offY) * scale;
+      if (i === 0) ctx.moveTo(X, Y);
+      else ctx.lineTo(X, Y);
+    }
+  }
+  ctx.stroke();
+  ctx.filter = "none";
   return c;
 }
 
 /**
- * Cover-transform every polyline once and build one Path2D per keyframe (all
- * that keyframe's segments in a single path), plus a reusable offscreen and the
- * edge-fade vignette.
+ * Bake each keyframe's web through the dense-glow paint → a stack of glow
+ * canvases, crossfaded at runtime. Built once at load from the vector data.
  */
 export function initPaths(json, tw, th) {
-  const { scale, offX, offY } = coverTransform(json.w, json.h, tw, th);
-  const keyframes = json.frames.map((segs) => {
-    const path = new Path2D();
-    for (const poly of segs) {
-      for (let i = 0; i < poly.length; i += 1) {
-        const X = (poly[i][0] - offX) * scale;
-        const Y = (poly[i][1] - offY) * scale;
-        if (i === 0) path.moveTo(X, Y);
-        else path.lineTo(X, Y);
-      }
-    }
-    return path;
+  const transform = coverTransform(json.w, json.h, tw, th);
+  const glows = json.frames.map((segs) => {
+    const web = rasterizeWeb(segs, transform, tw, th);
+    return generateEnergyCanvas(BODY.width, BODY.height, STAGE.scale, { web });
   });
-  return {
-    tw,
-    th,
-    count: keyframes.length,
-    keyframes,
-    offscreen: makeCanvas(tw, th),
-    vignette: makeVignette(tw, th),
-  };
-}
-
-function drawKeyframe(ctx, path, opacity) {
-  for (const [width, color, aScale] of PASSES) {
-    ctx.globalAlpha = Math.min(1, opacity * aScale);
-    ctx.lineWidth = width;
-    ctx.strokeStyle = color;
-    ctx.stroke(path);
-  }
+  return { tw, th, count: glows.length, glows };
 }
 
 /**
- * Paint one crossfaded frame: two consecutive keyframes with opacities summing
- * to 1 (web always present), masked by the vignette, blitted. Signature matches
- * the prior painters.
+ * Paint one crossfaded frame: alpha-blend two consecutive glow keyframes so the
+ * web is always present and its paths re-route between keyframes. Signature
+ * matches the prior painters.
  */
 export function paintPathsFrame(ctx, assets, tMs) {
-  if (!assets) return;
-  const { tw, th, count, keyframes, offscreen, vignette } = assets;
+  if (!assets || !assets.count) return;
+  const { tw, th, count, glows } = assets;
   const { k0, k1, frac } = keyframeAt(tMs, LOOP_MS, count);
 
-  const octx = offscreen.getContext("2d");
-  octx.globalCompositeOperation = "source-over";
-  octx.globalAlpha = 1;
-  octx.clearRect(0, 0, tw, th);
-  octx.globalCompositeOperation = "lighter";
-  octx.lineCap = "round";
-  octx.lineJoin = "round";
-
-  drawKeyframe(octx, keyframes[k0], 1 - frac);
-  drawKeyframe(octx, keyframes[k1], frac);
-
-  octx.globalCompositeOperation = "destination-in";
-  octx.globalAlpha = 1;
-  octx.drawImage(vignette, 0, 0);
-  octx.globalCompositeOperation = "source-over";
-
+  ctx.globalCompositeOperation = "source-over";
   ctx.clearRect(0, 0, tw, th);
-  ctx.drawImage(offscreen, 0, 0);
+  ctx.globalAlpha = 1 - frac;
+  ctx.drawImage(glows[k0], 0, 0);
+  ctx.globalAlpha = frac;
+  ctx.drawImage(glows[k1], 0, 0);
+  ctx.globalAlpha = 1;
 }

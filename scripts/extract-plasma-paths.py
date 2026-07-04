@@ -14,9 +14,9 @@ from skimage.morphology import remove_small_objects, skeletonize
 
 FH, FW, N = 325, 400, 26
 KEYFRAMES = 10
-THRESH = 195
-MIN_OBJ = 40
-TOL = 1.8
+THRESH = 150
+MIN_OBJ = 12
+TOL = 1.4
 
 src, out = sys.argv[1], sys.argv[2]
 a = np.asarray(Image.open(src).convert("L"), np.float32)
