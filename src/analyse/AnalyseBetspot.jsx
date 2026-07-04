@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { initFlow, loadTexture, paintFlowFrame } from "./plasmaFlow.js";
+import { initFrames, loadFrames, paintFramesFrame } from "./plasmaFrames.js";
 import { BODY, CHIP, ENERGY_OPACITY, LAYER_URLS, STAGE, TOP_BAR } from "./spec.js";
 
-const TEXTURE_URL = "/analyse/plasma-texture.webp";
+const FRAMES_URL = "/analyse/plasma-frames.webp";
+const FRAME_COUNT = 10;
 
 function layerStyle(box, scale = STAGE.scale) {
   return {
@@ -35,12 +36,13 @@ export default function AnalyseBetspot() {
   useEffect(() => {
     let cancelled = false;
 
-    // Load the dense plasma texture once, size the canvas to the body, and paint
-    // the t=0 frame static. The reveal loop then warps the texture with a slow
-    // turbulent flow so its filaments churn in place like plasma.
+    // Load the dense plasma frames once, size the canvas to the body, and paint
+    // the first frame static. The reveal loop then holds each frame and briefly
+    // crossfades to the next, so the bolts re-strike in place while the cell
+    // structure stays put.
     (async () => {
       try {
-        const img = await loadTexture(TEXTURE_URL);
+        const img = await loadFrames(FRAMES_URL);
         if (cancelled) return;
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -50,12 +52,12 @@ export default function AnalyseBetspot() {
         canvas.width = w;
         canvas.height = h;
 
-        const assets = initFlow(img, w, h);
+        const assets = initFrames(img, w, h, FRAME_COUNT);
         motionRef.current = assets;
-        paintFlowFrame(canvas.getContext("2d"), assets, 0);
+        paintFramesFrame(canvas.getContext("2d"), assets, 0);
         setReady(true);
       } catch (err) {
-        console.error("Failed to load plasma texture", err);
+        console.error("Failed to load plasma frames", err);
       }
     })();
 
@@ -77,7 +79,7 @@ export default function AnalyseBetspot() {
     let raf = 0;
 
     const frame = (now) => {
-      paintFlowFrame(ctx, assets, now - start);
+      paintFramesFrame(ctx, assets, now - start);
       raf = requestAnimationFrame(frame);
     };
 
@@ -92,7 +94,7 @@ export default function AnalyseBetspot() {
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onVisibility);
-      if (assets) paintFlowFrame(ctx, assets, 0);
+      if (assets) paintFramesFrame(ctx, assets, 0);
     };
   }, [revealed, ready, reducedMotion]);
 
