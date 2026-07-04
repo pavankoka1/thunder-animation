@@ -37,7 +37,7 @@ helpers `subdivideSegment`, `cumulativeLengths` from
 `generateLightningTree`).
 
 - `generateField(config, w, h)` → `{ segments: [{ points:[{x,y}], cumLengths,
-  length, depth, spawnAt, clusterId }], clusters:[{x,y}] }`.
+length, depth, spawnAt, clusterId }], clusters:[{x,y}] }`.
   - Places `config.clusterCount` cluster origins near center, spread by
     `config.clusterSpread`.
   - Each cluster: a trunk from its origin toward a biased edge target
@@ -67,6 +67,7 @@ edge-fade so energy stays contained.
 ### 3. `src/analyse/AnalyseBetspot.jsx` (edit)
 
 Strike lifecycle in the rAF loop, driven by the config:
+
 - Grow the current field over `config.strikeMs` (progress 0→1).
 - Hold for `config.holdMs`.
 - **Re-strike**: bump seed, `generateField` + `uploadField`, grow again → bolts
@@ -80,6 +81,7 @@ A collapsible **control panel** rendered under the betspot. Range sliders +
 buttons bound to the config object (React state lifted to `AnalysePage`, passed
 to both `AnalyseBetspot` and the panel; edits mutate the same config the renderer
 reads). Controls:
+
 - **Structure:** cluster count (1–5), cluster spread, branch density
   (branchChance 0–1), max depth (1–5), trunk jitter, branch length.
 - **Thickness:** halo / mid / core widths; glow intensities.

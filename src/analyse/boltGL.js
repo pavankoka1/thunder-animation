@@ -83,7 +83,11 @@ export function ribbonVertices(field, progress, widthFn) {
 }
 
 export function initBoltGL(canvas, config) {
-  const gl = canvas.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: true });
+  const gl = canvas.getContext("webgl2", {
+    alpha: true,
+    premultipliedAlpha: true,
+    antialias: true,
+  });
   if (!gl) throw new Error("webgl2 unavailable");
   const program = gl.createProgram();
   gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERT));
@@ -103,7 +107,18 @@ export function initBoltGL(canvas, config) {
   };
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE); // additive glow
-  return { gl, program, buf, aPos, aAcross, aTaper, u, config, w: canvas.width, h: canvas.height };
+  return {
+    gl,
+    program,
+    buf,
+    aPos,
+    aAcross,
+    aTaper,
+    u,
+    config,
+    w: canvas.width,
+    h: canvas.height,
+  };
 }
 
 /** Draw the field grown to `progress` in 3 glow passes. */

@@ -68,12 +68,14 @@ export function generateField(config, w, h) {
   const cx = w / 2;
   const cy = h / 2;
 
-  const clampPts = (pts) => pts.map((p) => ({ x: clamp(p.x, 0, w), y: clamp(p.y, 0, h) }));
+  const clampPts = (pts) =>
+    pts.map((p) => ({ x: clamp(p.x, 0, w), y: clamp(p.y, 0, h) }));
 
   const addBranch = (parent, fromPts, fromCum, attachIdx, depth, clusterId) => {
     if (depth > cfg.maxDepth) return;
     const parentLen = fromCum[fromCum.length - 1];
-    const spawnAt = parent.spawnAt + (fromCum[attachIdx] / parentLen) * (1 - parent.spawnAt);
+    const spawnAt =
+      parent.spawnAt + (fromCum[attachIdx] / parentLen) * (1 - parent.spawnAt);
     const prev = fromPts[Math.max(0, attachIdx - 1)];
     const at = fromPts[attachIdx];
     const baseAng = Math.atan2(at.y - prev.y, at.x - prev.x);
@@ -81,7 +83,15 @@ export function generateField(config, w, h) {
     const len = rr(rng, cfg.branchLenMin, cfg.branchLenMax) * (1 - depth * 0.22);
     const end = { x: at.x + Math.cos(ang) * len, y: at.y + Math.sin(ang) * len };
     const pts = clampPts(
-      subdivideSegment(at.x, at.y, end.x, end.y, cfg.trunkJitter * 0.5 * (1 - depth * 0.15), 1.6, rng),
+      subdivideSegment(
+        at.x,
+        at.y,
+        end.x,
+        end.y,
+        cfg.trunkJitter * 0.5 * (1 - depth * 0.15),
+        1.6,
+        rng
+      )
     );
     const cum = cumulativeLengths(pts);
     const seg = {
@@ -95,7 +105,8 @@ export function generateField(config, w, h) {
     };
     segments.push(seg);
     for (let i = 2; i < pts.length - 1; i += 2) {
-      if (rng() < cfg.branchChance * (1 - depth * 0.25)) addBranch(seg, pts, cum, i, depth + 1, clusterId);
+      if (rng() < cfg.branchChance * (1 - depth * 0.25))
+        addBranch(seg, pts, cum, i, depth + 1, clusterId);
     }
   };
 
@@ -109,7 +120,7 @@ export function generateField(config, w, h) {
     clusters.push(origin);
     const target = edgeTarget(rng, w, h);
     const pts = clampPts(
-      subdivideSegment(origin.x, origin.y, target.x, target.y, cfg.trunkJitter, 2.2, rng),
+      subdivideSegment(origin.x, origin.y, target.x, target.y, cfg.trunkJitter, 2.2, rng)
     );
     const cum = cumulativeLengths(pts);
     const trunk = {

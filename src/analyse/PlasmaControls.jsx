@@ -3,26 +3,35 @@ import { DEFAULT_CONFIG } from "./boltField.js";
 
 /** Slider groups over the shared, mutable `config` object the renderer reads. */
 const SLIDERS = [
-  ["Structure", [
-    ["clusterCount", "Clusters", 1, 6, 1],
-    ["clusterSpread", "Cluster spread", 0, 0.7, 0.01],
-    ["branchChance", "Branch density", 0, 1, 0.02],
-    ["maxDepth", "Max depth", 1, 5, 1],
-    ["trunkJitter", "Jaggedness", 4, 60, 1],
-    ["branchLenMax", "Branch length", 20, 120, 1],
-  ]],
-  ["Thickness / glow", [
-    ["haloWidth", "Halo width", 1, 24, 0.5],
-    ["midWidth", "Mid width", 0.5, 12, 0.5],
-    ["coreWidth", "Core width", 0.3, 6, 0.1],
-    ["haloAlpha", "Halo intensity", 0, 0.6, 0.01],
-    ["midAlpha", "Mid intensity", 0, 0.8, 0.01],
-    ["coreAlpha", "Core intensity", 0, 1, 0.01],
-  ]],
-  ["Motion (ms)", [
-    ["strikeMs", "Strike duration", 200, 3000, 50],
-    ["holdMs", "Hold", 0, 4000, 50],
-  ]],
+  [
+    "Structure",
+    [
+      ["clusterCount", "Clusters", 1, 6, 1],
+      ["clusterSpread", "Cluster spread", 0, 0.7, 0.01],
+      ["branchChance", "Branch density", 0, 1, 0.02],
+      ["maxDepth", "Max depth", 1, 5, 1],
+      ["trunkJitter", "Jaggedness", 4, 60, 1],
+      ["branchLenMax", "Branch length", 20, 120, 1],
+    ],
+  ],
+  [
+    "Thickness / glow",
+    [
+      ["haloWidth", "Halo width", 1, 24, 0.5],
+      ["midWidth", "Mid width", 0.5, 12, 0.5],
+      ["coreWidth", "Core width", 0.3, 6, 0.1],
+      ["haloAlpha", "Halo intensity", 0, 0.6, 0.01],
+      ["midAlpha", "Mid intensity", 0, 0.8, 0.01],
+      ["coreAlpha", "Core intensity", 0, 1, 0.01],
+    ],
+  ],
+  [
+    "Motion (ms)",
+    [
+      ["strikeMs", "Strike duration", 200, 3000, 50],
+      ["holdMs", "Hold", 0, 4000, 50],
+    ],
+  ],
 ];
 
 const COLORS = [
@@ -73,7 +82,11 @@ export default function PlasmaControls({ config, onRestrike }) {
         <button type="button" className="analyse-btn" onClick={randomize}>
           Randomize
         </button>
-        <button type="button" className="analyse-btn" onClick={() => (onRestrike?.(), force())}>
+        <button
+          type="button"
+          className="analyse-btn"
+          onClick={() => (onRestrike?.(), force())}
+        >
           Re-strike
         </button>
         <button type="button" className="analyse-btn" onClick={reset}>
@@ -107,7 +120,12 @@ export default function PlasmaControls({ config, onRestrike }) {
         {COLORS.map(([key, label]) => (
           <label className="plasma-controls__row" key={key}>
             <span>{label}</span>
-            <input type="color" value={toHex(config[key])} onInput={setColor(key)} onChange={setColor(key)} />
+            <input
+              type="color"
+              value={toHex(config[key])}
+              onInput={setColor(key)}
+              onChange={setColor(key)}
+            />
             <output>{toHex(config[key])}</output>
           </label>
         ))}

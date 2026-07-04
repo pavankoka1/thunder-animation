@@ -41,8 +41,9 @@ export default function AnalysePage() {
           </li>
           <li>
             <strong>Inner energy</strong> — WebGL; branching bolt-trees from central
-            clusters (<code>boltField.js</code> + <code>boltGL.js</code>), 3 glow passes for
-            thickness, grown then re-struck, edge-faded and screen-blended over the body
+            clusters (<code>boltField.js</code> + <code>boltGL.js</code>), 3 glow passes
+            for thickness, grown then re-struck, edge-faded and screen-blended over the
+            body
           </li>
           <li>
             <strong>Neon border</strong> — CSS glow, same colours as{" "}

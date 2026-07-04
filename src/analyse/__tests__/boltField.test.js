@@ -6,7 +6,11 @@ const H = 204;
 
 describe("generateField", () => {
   it("emits the configured cluster count, points in bounds, depth capped, taper", () => {
-    const f = generateField({ ...DEFAULT_CONFIG, clusterCount: 3, maxDepth: 3, seed: 7 }, W, H);
+    const f = generateField(
+      { ...DEFAULT_CONFIG, clusterCount: 3, maxDepth: 3, seed: 7 },
+      W,
+      H
+    );
     expect(f.clusters).toHaveLength(3);
     expect(f.segments.length).toBeGreaterThanOrEqual(3);
     let maxDepth = 0;
@@ -29,7 +33,9 @@ describe("generateField", () => {
   it("is deterministic per seed and varies across seeds", () => {
     const a = JSON.stringify(generateField({ ...DEFAULT_CONFIG, seed: 1 }, W, H));
     expect(a).toBe(JSON.stringify(generateField({ ...DEFAULT_CONFIG, seed: 1 }, W, H)));
-    expect(a).not.toBe(JSON.stringify(generateField({ ...DEFAULT_CONFIG, seed: 2 }, W, H)));
+    expect(a).not.toBe(
+      JSON.stringify(generateField({ ...DEFAULT_CONFIG, seed: 2 }, W, H))
+    );
   });
 });
 
@@ -39,6 +45,8 @@ describe("segmentDrawLength", () => {
     expect(segmentDrawLength(seg, 0.1)).toBe(0);
     expect(segmentDrawLength(seg, 1)).toBeCloseTo(100, 3);
     expect(segmentDrawLength(seg, 0.6)).toBeGreaterThan(0);
-    expect(segmentDrawLength(seg, 0.9)).toBeGreaterThanOrEqual(segmentDrawLength(seg, 0.6));
+    expect(segmentDrawLength(seg, 0.9)).toBeGreaterThanOrEqual(
+      segmentDrawLength(seg, 0.6)
+    );
   });
 });
