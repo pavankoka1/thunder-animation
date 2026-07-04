@@ -2,13 +2,17 @@ import { useRef } from "react";
 import AnalyseBetspot from "../analyse/AnalyseBetspot.jsx";
 import PlasmaControls from "../analyse/PlasmaControls.jsx";
 import { PLASMA_CONFIG } from "../analyse/plasmaGL.js";
+import { OUTER_CONFIG } from "../analyse/outerBorderGL.js";
 import "./AnalysePage.css";
 
 export default function AnalysePage() {
-  // One mutable config shared by the renderer and the control panel.
   const configRef = useRef(null);
   if (!configRef.current) configRef.current = structuredClone(PLASMA_CONFIG);
   const config = configRef.current;
+
+  const outerConfigRef = useRef(null);
+  if (!outerConfigRef.current) outerConfigRef.current = structuredClone(OUTER_CONFIG);
+  const outerConfig = outerConfigRef.current;
 
   return (
     <div className="analyse-page">
@@ -21,13 +25,13 @@ export default function AnalysePage() {
           Blue body and outer glow are pure CSS. The inner energy is drawn procedurally in
           WebGL — an electric-voronoi plasma whose cell borders form branching bolts that
           re-route over time, with finer ridged filaments and a crisp core line. No images.
-          Tune it live with the controls below. Click the spot to toggle.
+          The outer border is a second WebGL shader. Open the controls to tune both live.
         </p>
       </header>
 
-      <AnalyseBetspot config={config} />
+      <AnalyseBetspot config={config} outerConfig={outerConfig} />
 
-      <PlasmaControls config={config} />
+      <PlasmaControls config={config} outerConfig={outerConfig} />
 
       <section className="analyse-page__notes">
         <h2>Layers (bottom → top)</h2>

@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { initGL, paintGLFrame, PLASMA_CONFIG } from "./plasmaGL.js";
+import { OUTER_CONFIG } from "./outerBorderGL.js";
+import { betspotShakeOffset } from "../canvas/plasma/betspotShake.js";
 import { BODY, CHIP, ENERGY_OPACITY, LAYER_URLS, STAGE, TOP_BAR } from "./spec.js";
+
+const SHAKE_STRENGTH = 3.4;
 
 function layerStyle(box, scale = STAGE.scale) {
   return {
@@ -11,12 +15,16 @@ function layerStyle(box, scale = STAGE.scale) {
   };
 }
 
-export default function AnalyseBetspot({ config: configProp }) {
+export default function AnalyseBetspot({ config: configProp, outerConfig: outerConfigProp }) {
   const canvasRef = useRef(null);
+  const buttonRef = useRef(null);
   const glRef = useRef(null);
   const fallbackCfg = useRef(null);
   if (!fallbackCfg.current) fallbackCfg.current = { ...PLASMA_CONFIG };
   const config = configProp ?? fallbackCfg.current;
+  const fallbackOuter = useRef(null);
+  if (!fallbackOuter.current) fallbackOuter.current = { ...OUTER_CONFIG };
+  const outerConfig = outerConfigProp ?? fallbackOuter.current;
 
   const [ready, setReady] = useState(false);
   const [revealed, setRevealed] = useState(false);
@@ -35,15 +43,26 @@ export default function AnalyseBetspot({ config: configProp }) {
   const stageH = STAGE.height * STAGE.scale;
 
   useEffect(() => {
-    // Build the WebGL plasma once, size the canvas to the body, paint frame 0.
-    // The reveal loop advances shader time so the bolts drift/re-route. The
-    // renderer reads the shared config each frame, so slider edits apply live.
     try {
       const canvas = canvasRef.current;
       if (canvas) {
-        canvas.width = BODY.width * STAGE.scale;
-        canvas.height = BODY.height * STAGE.scale;
-        glRef.current = initGL(canvas, config);
+        const scale = STAGE.scale;
+        canvas.width = STAGE.width * scale;
+        canvas.height = STAGE.height * scale;
+
+        const bodyOffset = [
+          BODY.x * scale,
+          canvas.height - (BODY.y + BODY.height) * scale,
+        ];
+        const bodySize = [BODY.width * scale, BODY.height * scale];
+
+        const rect = {
+          center: [(BODY.x + BODY.width / 2) * scale, (BODY.y + BODY.height / 2) * scale],
+          half: [(BODY.width / 2) * scale, (BODY.height / 2) * scale],
+          radius: BODY.cornerRadius * scale,
+        };
+
+        glRef.current = initGL(canvas, config, { bodyOffset, bodySize, rect }, outerConfig);
         paintGLFrame(glRef.current, 0);
         setReady(true);
       }
@@ -53,8 +72,6 @@ export default function AnalyseBetspot({ config: configProp }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Advance shader time while revealed. Reduced-motion → static frame 0;
-  // pauses when the tab is hidden; repaints frame 0 on cleanup.
   useEffect(() => {
     const assets = glRef.current;
     if (!assets || !ready) return undefined;
@@ -66,7 +83,27 @@ export default function AnalyseBetspot({ config: configProp }) {
     const start = performance.now();
     let raf = 0;
     const frame = (now) => {
-      paintGLFrame(assets, now - start);
+      const tMs = now - start;
+      paintGLFrame(assets, tMs);
+
+      const btn = buttonRef.current;
+      if (btn) {
+        const p = Math.min(1, tMs / outerConfig.formationMs);
+        let env;
+        if (p >= 1) env = 0;
+        else if (p < 0.08) env = p / 0.08;
+        else {
+          const q = (p - 0.08) / 0.92;
+          env = 1 - q * q;
+        }
+        if (env > 0) {
+          const { x, y, rot } = betspotShakeOffset(tMs, { intensity: env * SHAKE_STRENGTH });
+          btn.style.transform = `translate(${x}px, ${y}px) rotate(${rot}deg)`;
+        } else {
+          btn.style.transform = "";
+        }
+      }
+
       raf = requestAnimationFrame(frame);
     };
     const onVisibility = () => {
@@ -80,8 +117,9 @@ export default function AnalyseBetspot({ config: configProp }) {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onVisibility);
       paintGLFrame(assets, 0);
+      if (buttonRef.current) buttonRef.current.style.transform = "";
     };
-  }, [revealed, ready, reducedMotion, config]);
+  }, [revealed, ready, reducedMotion, config, outerConfig]);
 
   const toggleEnergy = useCallback(() => {
     if (!ready) return;
@@ -92,6 +130,7 @@ export default function AnalyseBetspot({ config: configProp }) {
     <div className="analyse-page__demo">
       <button
         type="button"
+        ref={buttonRef}
         className="analyse-betspot"
         style={{ width: stageW, height: stageH }}
         onClick={toggleEnergy}
@@ -110,17 +149,11 @@ export default function AnalyseBetspot({ config: configProp }) {
           ref={canvasRef}
           className="analyse-betspot__layer analyse-betspot__energy"
           style={{
-            ...layerStyle(BODY),
-            borderRadius: BODY.cornerRadius * STAGE.scale,
+            left: 0,
+            top: 0,
+            width: stageW,
+            height: stageH,
             opacity: revealed ? ENERGY_OPACITY : 0,
-          }}
-          aria-hidden
-        />
-        <div
-          className={`analyse-betspot__border ${revealed ? "is-active" : ""}`}
-          style={{
-            ...layerStyle(BODY),
-            borderRadius: BODY.cornerRadius * STAGE.scale,
           }}
           aria-hidden
         />

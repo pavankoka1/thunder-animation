@@ -1,8 +1,8 @@
-import { useReducer } from "react";
+import { useReducer, useState } from "react";
 import { PLASMA_CONFIG } from "./plasmaGL.js";
+import { EASINGS, OUTER_CONFIG } from "./outerBorderGL.js";
 
-/** Slider groups over the shared, mutable `config` object the renderer reads. */
-const SLIDERS = [
+const INNER_SLIDERS = [
   [
     "Density / structure",
     [
@@ -44,54 +44,85 @@ const SLIDERS = [
   ],
 ];
 
-const COLORS = [
+const INNER_COLORS = [
   ["baseColor", "Base"],
   ["haloColor", "Halo"],
   ["coreColor", "Core"],
 ];
 
-// Shader colours are 0..1 floats; the <input type="color"> uses 0..255 hex.
+const OUTER_SLIDERS = [
+  [
+    "Travel & timing",
+    [
+      ["formationMs", "Loop time (ms)", 400, 6000, 50],
+      ["heartbeat", "Heartbeat amount", 0, 0.6, 0.02],
+      ["headBoost", "Spark brightness", 0, 4, 0.05],
+      ["tailLength", "Tail length", 0.02, 0.6, 0.01],
+      ["flameScroll", "Flame speed", 0, 2, 0.02],
+      ["flicker", "Flicker rate", 0, 10, 0.1],
+    ],
+  ],
+  [
+    "Texture / amplitude",
+    [
+      ["flameOutreach", "Flame amplitude", 0, 40, 0.5],
+      ["freqAlong", "Tongues around", 4, 60, 1],
+      ["freqAcross", "Detail across", 4, 60, 1],
+      ["innerRaggedFreq", "Inner crackle", 4, 80, 1],
+      ["topBias", "Top-edge bias", 0, 1, 0.02],
+    ],
+  ],
+  [
+    "Widths / glow",
+    [
+      ["coreWidth", "Core width", 0.5, 10, 0.25],
+      ["midWidth", "Mid width", 1, 20, 0.5],
+      ["haloWidth", "Halo width", 4, 60, 1],
+      ["coreIntensity", "Core intensity", 0, 2, 0.05],
+      ["midIntensity", "Mid intensity", 0, 2, 0.05],
+      ["haloIntensity", "Halo intensity", 0, 2, 0.05],
+    ],
+  ],
+];
+
+const OUTER_COLORS = [
+  ["coreColor", "Core"],
+  ["midColor", "Mid"],
+  ["haloColor", "Halo"],
+];
+
 const toHex = (rgb) =>
-  "#" +
-  rgb
-    .map((c) => Math.round(c * 255).toString(16).padStart(2, "0"))
-    .join("");
+  "#" + rgb.map((c) => Math.round(c * 255).toString(16).padStart(2, "0")).join("");
 const fromHex = (hex) => [
   parseInt(hex.slice(1, 3), 16) / 255,
   parseInt(hex.slice(3, 5), 16) / 255,
   parseInt(hex.slice(5, 7), 16) / 255,
 ];
 
-/**
- * Live control panel over the plasma `config`. Mutates the same object the
- * renderer reads each frame, so slider/colour edits apply immediately.
- */
-export default function PlasmaControls({ config }) {
-  const [, force] = useReducer((n) => n + 1, 0);
-
+function ControlSection({ title, target, sliders, colors, defaults, extras, onChange }) {
   const setNum = (key) => (e) => {
-    config[key] = Number(e.target.value);
-    force();
+    target[key] = Number(e.target.value);
+    onChange();
   };
   const setColor = (key) => (e) => {
-    config[key] = fromHex(e.target.value);
-    force();
+    target[key] = fromHex(e.target.value);
+    onChange();
   };
   const reset = () => {
-    Object.assign(config, structuredClone(PLASMA_CONFIG));
-    force();
+    Object.assign(target, structuredClone(defaults));
+    onChange();
   };
 
   return (
-    <details className="plasma-controls" open>
-      <summary>Plasma controls</summary>
-      <div className="plasma-controls__actions">
+    <section className="controls-modal__section">
+      <div className="controls-modal__section-head">
+        <h3>{title}</h3>
         <button type="button" className="analyse-btn" onClick={reset}>
           Reset
         </button>
       </div>
 
-      {SLIDERS.map(([group, rows]) => (
+      {sliders.map(([group, rows]) => (
         <fieldset className="plasma-controls__group" key={group}>
           <legend>{group}</legend>
           {rows.map(([key, label, min, max, step]) => (
@@ -102,31 +133,122 @@ export default function PlasmaControls({ config }) {
                 min={min}
                 max={max}
                 step={step}
-                value={config[key]}
+                value={target[key]}
                 onInput={setNum(key)}
                 onChange={setNum(key)}
               />
-              <output>{config[key]}</output>
+              <output>{target[key]}</output>
             </label>
           ))}
         </fieldset>
       ))}
 
-      <fieldset className="plasma-controls__group">
-        <legend>Colour</legend>
-        {COLORS.map(([key, label]) => (
-          <label className="plasma-controls__row" key={key}>
-            <span>{label}</span>
-            <input
-              type="color"
-              value={toHex(config[key])}
-              onInput={setColor(key)}
-              onChange={setColor(key)}
-            />
-            <output>{toHex(config[key])}</output>
-          </label>
-        ))}
-      </fieldset>
-    </details>
+      {extras}
+
+      {colors?.length ? (
+        <fieldset className="plasma-controls__group">
+          <legend>Colour</legend>
+          {colors.map(([key, label]) => (
+            <label className="plasma-controls__row" key={key}>
+              <span>{label}</span>
+              <input
+                type="color"
+                value={toHex(target[key])}
+                onInput={setColor(key)}
+                onChange={setColor(key)}
+              />
+              <output>{toHex(target[key])}</output>
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
+    </section>
+  );
+}
+
+export default function PlasmaControls({ config, outerConfig }) {
+  const [open, setOpen] = useState(false);
+  const [, force] = useReducer((n) => n + 1, 0);
+
+  const setEasing = (e) => {
+    outerConfig.easing = e.target.value;
+    force();
+  };
+
+  const easingRow = (
+    <fieldset className="plasma-controls__group">
+      <legend>Easing</legend>
+      <label className="plasma-controls__row">
+        <span>Reveal easing</span>
+        <select value={outerConfig.easing} onChange={setEasing}>
+          {Object.keys(EASINGS).map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+        <output>{outerConfig.easing}</output>
+      </label>
+    </fieldset>
+  );
+
+  return (
+    <>
+      <button
+        type="button"
+        className="analyse-btn analyse-btn_primary controls-modal__toggle"
+        onClick={() => setOpen(true)}
+      >
+        Open controls
+      </button>
+
+      {open && (
+        <div
+          className="controls-modal__backdrop"
+          role="presentation"
+          onClick={() => setOpen(false)}
+        >
+          <div
+            className="controls-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Animation controls"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="controls-modal__header">
+              <h2>Animation controls</h2>
+              <button
+                type="button"
+                className="controls-modal__close"
+                aria-label="Close controls"
+                onClick={() => setOpen(false)}
+              >
+                ×
+              </button>
+            </header>
+
+            <div className="controls-modal__body">
+              <ControlSection
+                title="Outer border"
+                target={outerConfig}
+                sliders={OUTER_SLIDERS}
+                colors={OUTER_COLORS}
+                defaults={OUTER_CONFIG}
+                extras={easingRow}
+                onChange={force}
+              />
+              <ControlSection
+                title="Inner energy"
+                target={config}
+                sliders={INNER_SLIDERS}
+                colors={INNER_COLORS}
+                defaults={PLASMA_CONFIG}
+                onChange={force}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

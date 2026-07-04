@@ -1,44 +1,36 @@
-/**
- * Procedural WebGL plasma for the analyse betspot — no images.
- *
- * Electric-voronoi plasma: cell borders are the bolts, seeds drift so the bolts
- * re-route over time. On top of the main border bolts we add finer ridged
- * branch filaments, per-cell width variety (some bolts denser than others), and
- * a thin crisp core line for sharp finishing. Every parameter is a live shader
- * uniform driven from PLASMA_CONFIG (also on window.__analysePlasmaConfig).
- */
+import {
+  applyOuterUniforms,
+  EASINGS,
+  OUTER_CONFIG,
+  OUTER_FRAG,
+  OUTER_UNIFORM_NAMES,
+} from "./outerBorderGL.js";
 
 export const PLASMA_CONFIG = {
-  // ---- motion / time ----
   timeScale: 1.0,
   seedSpeed: 0.45,
   seedDrift: 0.45,
   warpSpeed: 0.03,
   warpAmount: 1.5,
 
-  // ---- density / structure ----
   cellScaleX: 9.5,
   cellScaleY: 4.6,
-  boltWidth: 0.15, // thinner main bolts
-  boltSharp: 2.3, // crisper falloff
-  boltVary: 0.5, // 0..1 per-cell width variety → different dense bolts
+  boltWidth: 0.15,
+  boltSharp: 2.3,
+  boltVary: 0.5,
 
-  // ---- extra thin branches (ridged filaments hugging the bolts) ----
   branchStrength: 0.6,
   branchScale: 7.0,
   branchSharp: 3.6,
 
-  // ---- fine secondary filaments (fill) ----
   filStrength: 0.7,
   filScale: 3.4,
   filLo: 0.52,
   filHi: 0.95,
 
-  // ---- crisp thin core line right on the border ----
   crispWidth: 0.03,
   crispIntensity: 0.95,
 
-  // ---- colour (violet / purple) ----
   baseColor: [0.42, 0.14, 0.72],
   haloColor: [0.66, 0.32, 1.0],
   coreColor: [0.98, 0.94, 1.0],
@@ -47,18 +39,16 @@ export const PLASMA_CONFIG = {
   coreIntensity: 0.9,
   coreThreshold: 0.6,
 
-  // ---- edge fade ----
   edgeRadius: 0.72,
   edgeSoftness: 1.06,
 };
 
-/** Shader time in seconds, clamped (first rAF timestamp can be < the start). */
 export function elapsedSeconds(tMs) {
   return (tMs > 0 ? tMs : 0) * 0.001;
 }
 
 const VERT = `#version 300 es
-in vec2 a_pos;
+layout(location = 0) in vec2 a_pos;
 void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
 `;
 
@@ -66,6 +56,7 @@ const FRAG = `#version 300 es
 precision highp float;
 out vec4 o_color;
 uniform vec2 u_res;
+uniform vec2 u_bodyOffset;
 uniform float u_time;
 
 uniform float u_seedSpeed, u_seedDrift, u_warpSpeed, u_warpAmount;
@@ -94,7 +85,8 @@ float fbm(vec2 p){
 }
 
 void main(){
-  vec2 uv = gl_FragCoord.xy / u_res;
+  vec2 uv = (gl_FragCoord.xy - u_bodyOffset) / u_res;
+  float inBody = step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0);
   float t = u_time;
 
   vec2 p = uv * u_cellScale;
@@ -114,25 +106,21 @@ void main(){
     }
   }
 
-  float edge = F2 - F1;                              // 0 on a cell border
+  float edge = F2 - F1;
 
-  // per-cell width variety → some bolts thicker/denser than others
   float cellVar = 1.0 + u_boltVary * (hash(nearCell + 3.3) - 0.5) * 2.0;
   float bw = max(0.01, u_boltWidth * cellVar);
   float bolt = pow(clamp(1.0 - edge / bw, 0.0, 1.0), u_boltSharp);
 
-  // fine secondary filaments (fill the cells a little)
   float fil = fbm(p * u_filScale + t * u_warpSpeed * 1.6);
   bolt = max(bolt, smoothstep(u_filLo, u_filHi, fil) * bolt * u_filStrength);
 
-  // extra thin ridged branches, gated to hug the bolts
   float rn = fbm(p * u_branchScale + vec2(11.0) + t * u_warpSpeed * 2.0);
   float ridge = 1.0 - abs(rn * 2.0 - 1.0);
   float branches = pow(clamp(ridge, 0.0, 1.0), u_branchSharp) * u_branchStr;
   branches *= smoothstep(0.0, 0.55, bolt + 0.15);
   bolt = max(bolt, branches);
 
-  // thin crisp core line exactly on the border
   float crisp = (1.0 - smoothstep(0.0, u_crispW, edge)) * u_crispInt;
 
   vec3 base = u_baseColor * u_baseInt;
@@ -145,8 +133,8 @@ void main(){
   float vig = clamp(u_edgeSoft - dist, 0.0, 1.0);
   vig *= vig;
 
-  float a = clamp(max(max(col.r, col.g), col.b), 0.0, 1.0) * vig;
-  o_color = vec4(col * vig, a);
+  float a = clamp(max(max(col.r, col.g), col.b), 0.0, 1.0) * vig * inBody;
+  o_color = vec4(col * vig * inBody, a);
 }
 `;
 
@@ -164,6 +152,7 @@ function compile(gl, type, src) {
 
 const UNIFORM_NAMES = [
   "u_res",
+  "u_bodyOffset",
   "u_time",
   "u_seedSpeed",
   "u_seedDrift",
@@ -193,12 +182,7 @@ const UNIFORM_NAMES = [
   "u_edgeSoft",
 ];
 
-/**
- * Create the WebGL2 program + fullscreen quad. `config` is merged over
- * PLASMA_CONFIG and kept mutable on the returned assets (edit live). Throws if
- * WebGL2/compile is unavailable (caller leaves the energy empty).
- */
-export function initGL(canvas, config = {}) {
+export function initGL(canvas, config = {}, layout, outerConfig) {
   const gl = canvas.getContext("webgl2", {
     alpha: true,
     premultipliedAlpha: true,
@@ -206,13 +190,19 @@ export function initGL(canvas, config = {}) {
   });
   if (!gl) throw new Error("webgl2 unavailable");
 
-  const program = gl.createProgram();
-  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERT));
-  gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, FRAG));
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    throw new Error(`program link: ${gl.getProgramInfoLog(program)}`);
-  }
+  const link = (fragSrc) => {
+    const program = gl.createProgram();
+    gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERT));
+    gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fragSrc));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      throw new Error(`program link: ${gl.getProgramInfoLog(program)}`);
+    }
+    return program;
+  };
+
+  const program = link(FRAG);
+  const outerProgram = link(OUTER_FRAG);
 
   const buf = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -221,28 +211,50 @@ export function initGL(canvas, config = {}) {
     new Float32Array([-1, -1, 3, -1, -1, 3]),
     gl.STATIC_DRAW
   );
-  const loc = gl.getAttribLocation(program, "a_pos");
-  gl.enableVertexAttribArray(loc);
-  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-  gl.useProgram(program);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
   const u = {};
   for (const name of UNIFORM_NAMES) u[name] = gl.getUniformLocation(program, name);
+  const ou = {};
+  for (const name of OUTER_UNIFORM_NAMES) ou[name] = gl.getUniformLocation(outerProgram, name);
 
   const cfg = config.timeScale !== undefined ? config : { ...PLASMA_CONFIG, ...config };
-  if (typeof window !== "undefined") window.__analysePlasmaConfig = cfg;
-  return { gl, program, u, cfg, w: canvas.width, h: canvas.height };
+  const outerCfg = outerConfig ?? { ...OUTER_CONFIG };
+  if (typeof window !== "undefined") {
+    window.__analysePlasmaConfig = cfg;
+    window.__analyseOuterConfig = outerCfg;
+  }
+
+  const w = canvas.width;
+  const h = canvas.height;
+  const body = {
+    offset: layout?.bodyOffset ?? [0, 0],
+    size: layout?.bodySize ?? [w, h],
+  };
+  const rect =
+    layout?.rect ?? {
+      center: [w / 2, h / 2],
+      half: [w / 2, h / 2],
+      radius: Math.min(w, h) * 0.1,
+    };
+
+  return { gl, program, u, cfg, outerProgram, ou, outerCfg, body, rect, w, h };
 }
 
-/** Draw one frame at time tMs, applying the (possibly live-edited) config. */
 export function paintGLFrame(assets, tMs) {
   if (!assets) return;
-  const { gl, u, cfg, w, h } = assets;
+  const { gl, program, u, cfg, outerProgram, ou, outerCfg, body, rect, w, h } = assets;
   gl.viewport(0, 0, w, h);
   gl.clearColor(0, 0, 0, 0);
   gl.clear(gl.COLOR_BUFFER_BIT);
 
-  gl.uniform2f(u.u_res, w, h);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+  gl.useProgram(program);
+  gl.uniform2f(u.u_res, body.size[0], body.size[1]);
+  gl.uniform2f(u.u_bodyOffset, body.offset[0], body.offset[1]);
   gl.uniform1f(u.u_time, elapsedSeconds(tMs) * cfg.timeScale);
   gl.uniform1f(u.u_seedSpeed, cfg.seedSpeed);
   gl.uniform1f(u.u_seedDrift, cfg.seedDrift);
@@ -270,6 +282,13 @@ export function paintGLFrame(assets, tMs) {
   gl.uniform1f(u.u_coreThresh, cfg.coreThreshold);
   gl.uniform1f(u.u_edgeR, cfg.edgeRadius);
   gl.uniform1f(u.u_edgeSoft, cfg.edgeSoftness);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
 
+  const timeSec = elapsedSeconds(tMs);
+  const raw = Math.max(0, Math.min(1, tMs / outerCfg.formationMs));
+  const ease = EASINGS[outerCfg.easing] || EASINGS.linear;
+  const reveal = ease(raw);
+  gl.useProgram(outerProgram);
+  applyOuterUniforms(gl, ou, outerCfg, { timeSec, reveal, w, h, rect });
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
