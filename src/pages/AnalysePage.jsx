@@ -10,10 +10,10 @@ export default function AnalysePage() {
         </a>
         <h1 className="analyse-page__title">Analyse — inner energy</h1>
         <p className="analyse-page__subtitle">
-          Blue body and outer glow are pure CSS. The inner energy is the filament web
-          extracted from the artwork, rendered as vector branches that crossfade between
-          keyframes — the dense web stays present while its paths re-route in place,
-          looping. Screen-blended over the body and edge-faded. Click to toggle.
+          Blue body and outer glow are pure CSS. The inner energy is the dense plasma
+          texture warped in real time by a slow turbulent flow — the filaments bend and
+          churn in place like plasma, no new paths drawn. Screen-blended over the body and
+          edge-faded. Click to toggle.
         </p>
       </header>
 
@@ -26,10 +26,9 @@ export default function AnalysePage() {
             <strong>Body</strong> — CSS blue gradient + outer glow (no PNG)
           </li>
           <li>
-            <strong>Inner energy</strong> — canvas; the filament web extracted from the
-            artwork frames (<code>plasmaPaths.js</code>), rendered as vector branches that
-            crossfade between keyframes so the web stays present while its paths re-route,
-            painted with halo/mid/core glow and screen-blended over the body
+            <strong>Inner energy</strong> — canvas; the dense plasma texture
+            (<code>plasmaFlow.js</code>) warped each frame by a slow turbulent flow so its
+            filaments churn in place like plasma, edge-faded and screen-blended over the body
           </li>
           <li>
             <strong>Neon border</strong> — CSS glow, same colours as{" "}

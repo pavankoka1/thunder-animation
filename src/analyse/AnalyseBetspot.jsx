@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { initPaths, loadPaths, paintPathsFrame } from "./plasmaPaths.js";
+import { initFlow, loadTexture, paintFlowFrame } from "./plasmaFlow.js";
 import { BODY, CHIP, ENERGY_OPACITY, LAYER_URLS, STAGE, TOP_BAR } from "./spec.js";
 
-const PATHS_URL = "/analyse/plasma-paths.json";
+const TEXTURE_URL = "/analyse/plasma-texture.webp";
 
 function layerStyle(box, scale = STAGE.scale) {
   return {
@@ -35,12 +35,12 @@ export default function AnalyseBetspot() {
   useEffect(() => {
     let cancelled = false;
 
-    // Load the extracted plasma web once, size the canvas to the body, and paint
-    // the t=0 keyframe as the static image. The reveal loop then crossfades the
-    // keyframes so the web's paths re-route in place.
+    // Load the dense plasma texture once, size the canvas to the body, and paint
+    // the t=0 frame static. The reveal loop then warps the texture with a slow
+    // turbulent flow so its filaments churn in place like plasma.
     (async () => {
       try {
-        const json = await loadPaths(PATHS_URL);
+        const img = await loadTexture(TEXTURE_URL);
         if (cancelled) return;
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -50,12 +50,12 @@ export default function AnalyseBetspot() {
         canvas.width = w;
         canvas.height = h;
 
-        const assets = initPaths(json, w, h);
+        const assets = initFlow(img, w, h);
         motionRef.current = assets;
-        paintPathsFrame(canvas.getContext("2d"), assets, 0);
+        paintFlowFrame(canvas.getContext("2d"), assets, 0);
         setReady(true);
       } catch (err) {
-        console.error("Failed to load plasma paths", err);
+        console.error("Failed to load plasma texture", err);
       }
     })();
 
@@ -77,7 +77,7 @@ export default function AnalyseBetspot() {
     let raf = 0;
 
     const frame = (now) => {
-      paintPathsFrame(ctx, assets, now - start);
+      paintFlowFrame(ctx, assets, now - start);
       raf = requestAnimationFrame(frame);
     };
 
@@ -92,7 +92,7 @@ export default function AnalyseBetspot() {
     return () => {
       cancelAnimationFrame(raf);
       document.removeEventListener("visibilitychange", onVisibility);
-      if (assets) paintPathsFrame(ctx, assets, 0);
+      if (assets) paintFlowFrame(ctx, assets, 0);
     };
   }, [revealed, ready, reducedMotion]);
 
