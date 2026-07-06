@@ -70,17 +70,89 @@
   cursor: pointer;
   border-radius: 30px;
   overflow: visible;
+  transform: scale(1);
+  transform-origin: 50% 50%;
 }
 
 .analyse-betspot:disabled {
   cursor: wait;
 }
 
+/* Phase A — scale IN, then OUT, then settle. Runs once when energy is
+ * triggered: the card compresses inward, overshoots past full size on the
+ * rebound, then settles just under 100% (measured from the reference clip:
+ * dips to ~95%, overshoots to ~101.5%, settles ~95-96%). Runs in parallel
+ * with the outer border crawl and the glow keyframes below. */
+@keyframes analyse-betspot-scale-settle {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(0.94); /* scale IN */
+  }
+  60% {
+    transform: scale(1.02); /* scale OUT (overshoot past 100%) */
+  }
+  100% {
+    transform: scale(0.96); /* settle */
+  }
+}
+
+.analyse-betspot.is-active {
+  animation: analyse-betspot-scale-settle var(--analyse-scale-duration, 350ms)
+    var(--analyse-scale-easing, ease-out) forwards;
+}
+
 .analyse-betspot__layer,
-.analyse-betspot__border,
 .analyse-betspot__status {
   position: absolute;
   display: block;
+}
+
+/* Whole-betspot ambient glow — a soft magenta bloom radiating past the card
+ * edges, separate from the crisp WebGL outer-border crawl. Sized/positioned
+ * to match BODY exactly (not the larger STAGE box the button uses) so the
+ * bloom hugs the actual pink card instead of floating past it with a gap.
+ * Sits behind the body layer so only the shadow bleed outside the card is
+ * visible. Measured from the reference clip: rises with the scale/crawl,
+ * keeps building while the outer energy is "charging", then relaxes to
+ * ~85% brightness once the outer energy is done and stays there. Stop
+ * percentages (17% / 87%) come from ANIMATION.glow's riseMs/holdMs/decayMs
+ * (350/1450/280 of 2080ms total) — keep them in sync if those values change. */
+.analyse-betspot__glow {
+  z-index: -1;
+  pointer-events: none;
+}
+
+@keyframes analyse-body-glow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 130, 230, 0);
+    animation-timing-function: var(--analyse-glow-rise-easing, ease-out);
+  }
+  17% {
+    box-shadow:
+      0 0 20px 6px rgba(255, 130, 230, 0.55),
+      0 0 46px 16px rgba(225, 20, 180, 0.4),
+      0 0 80px 28px rgba(200, 10, 160, 0.22);
+    animation-timing-function: linear;
+  }
+  87% {
+    box-shadow:
+      0 0 20px 6px rgba(255, 130, 230, 0.55),
+      0 0 46px 16px rgba(225, 20, 180, 0.4),
+      0 0 80px 28px rgba(200, 10, 160, 0.22);
+    animation-timing-function: var(--analyse-glow-decay-easing, ease-in-out);
+  }
+  100% {
+    box-shadow:
+      0 0 14px 4px rgba(255, 130, 230, 0.42),
+      0 0 34px 12px rgba(225, 20, 180, 0.3),
+      0 0 60px 22px rgba(200, 10, 160, 0.16);
+  }
+}
+
+.analyse-betspot__glow.is-active {
+  animation: analyse-body-glow var(--analyse-glow-duration, 2080ms) linear forwards;
 }
 
 .analyse-betspot__body {
@@ -124,46 +196,22 @@
     0 0 30px 8px rgba(220, 90, 180, 0.28);
 }
 
+/* Phase B — inner energy fade-in. The WebGL shader ramps u_opacity per-pixel
+ * (see gl/shaders.js), but the canvas itself must ALSO transition its own
+ * opacity — without this rule the browser snaps the layer visible/hidden
+ * instantly instead of tweening it. Delay matches inner.js delayMs (~90ms
+ * after activation, i.e. just after the Phase A scale settles); duration
+ * matches inner.js formationMs. */
 .analyse-betspot__energy {
   z-index: 1;
   pointer-events: none;
   mix-blend-mode: screen;
-}
-
-.analyse-betspot__border {
-  z-index: 2;
-  pointer-events: none;
-  box-sizing: border-box;
-  border: 2px solid rgba(255, 175, 235, 0);
-  box-shadow:
-    0 0 0 0 rgba(255, 252, 254, 0),
-    0 0 0 0 rgba(255, 120, 220, 0),
-    0 0 0 0 rgba(255, 80, 200, 0);
   opacity: 0;
-  transition:
-    opacity 0.26s ease-out,
-    border-color 0.26s ease-out,
-    box-shadow 0.26s ease-out;
+  transition: opacity 400ms ease-out 90ms;
 }
 
-.analyse-betspot__border.is-active {
-  opacity: 1;
-  border-color: rgba(255, 175, 235, 0.95);
-  box-shadow:
-    0 0 3px 1px rgba(255, 252, 254, 0.9),
-    0 0 10px 4px rgba(255, 120, 220, 0.7),
-    0 0 22px 10px rgba(255, 80, 200, 0.5);
-  animation: analyse-border-pulse 1.2s ease-in-out 0.26s infinite;
-}
-
-@keyframes analyse-border-pulse {
-  0%,
-  100% {
-    filter: brightness(0.94);
-  }
-  50% {
-    filter: brightness(1.08);
-  }
+.analyse-betspot__energy.is-active {
+  opacity: var(--energy-opacity, 1);
 }
 
 .analyse-betspot__topbar {
@@ -188,6 +236,47 @@
 
 .analyse-betspot__topbar--pink {
   border-color: #ff5fb0;
+}
+
+/* Pill glow — same magenta neon as the border, and the same rise/hold/decay
+ * timing as the whole-body glow above (measured peak/rest ratio ~0.6: the
+ * pill dims noticeably once the outer energy is done, more than the ambient
+ * body bloom does). Stop percentages must match analyse-body-glow above. */
+@keyframes analyse-pill-glow {
+  0% {
+    border-color: rgba(255, 199, 234, 0.35);
+    box-shadow:
+      0 0 0 0 rgba(255, 235, 250, 0),
+      0 0 0 0 rgba(255, 90, 220, 0),
+      0 0 0 0 rgba(225, 20, 180, 0);
+    animation-timing-function: var(--analyse-glow-rise-easing, ease-out);
+  }
+  17% {
+    border-color: #ffe9f8;
+    box-shadow:
+      0 0 6px 2px rgba(255, 235, 250, 1),
+      0 0 18px 6px rgba(255, 90, 220, 0.85),
+      0 0 34px 12px rgba(225, 20, 180, 0.55);
+    animation-timing-function: linear;
+  }
+  87% {
+    border-color: #ffe9f8;
+    box-shadow:
+      0 0 6px 2px rgba(255, 235, 250, 1),
+      0 0 18px 6px rgba(255, 90, 220, 0.85),
+      0 0 34px 12px rgba(225, 20, 180, 0.55);
+    animation-timing-function: var(--analyse-glow-decay-easing, ease-in-out);
+  }
+  100% {
+    border-color: #ffc7ea;
+    box-shadow:
+      0 0 4px 1px rgba(255, 120, 220, 0.65),
+      0 0 12px 3px rgba(230, 30, 180, 0.4);
+  }
+}
+
+.analyse-betspot__topbar.is-lit {
+  animation: analyse-pill-glow var(--analyse-glow-duration, 2080ms) linear forwards;
 }
 
 .analyse-betspot__chip {

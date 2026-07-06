@@ -14,6 +14,7 @@ uniform float u_seedSpeed, u_seedDrift, u_warpSpeed, u_warpAmount;
 uniform vec2 u_cellScale;
 uniform float u_boltWidth, u_boltSharp, u_boltVary;
 uniform float u_branchStr, u_branchScale, u_branchSharp;
+uniform float u_branch2Str, u_branch2Scale, u_branch2Sharp;
 uniform float u_filStrength, u_filScale, u_filLo, u_filHi;
 uniform float u_crispW, u_crispInt;
 uniform float u_nodeSize, u_nodeSharp, u_nodeInt, u_cloudScale, u_cloudAmount;
@@ -78,6 +79,22 @@ void main(){
   branches *= smoothstep(0.0, 0.55, bolt + 0.15);
   bolt = max(bolt, branches);
 
+  // Secondary finer branch layer — rotated ~43deg and at a higher frequency
+  // than the primary layer so twigs shoot off the main veins at varied
+  // angles, matching the denser fractal lightning reference (more branches
+  // overall, not just thicker single veins).
+  vec2 p2 = vec2(p.x * 0.731 - p.y * 0.682, p.x * 0.682 + p.y * 0.731);
+  float rn2 = fbm(p2 * u_branch2Scale + vec2(53.0) - t * u_warpSpeed * 2.4);
+  float ridge2 = 1.0 - abs(rn2 * 2.0 - 1.0);
+  float branches2 = pow(clamp(ridge2, 0.0, 1.0), u_branch2Sharp) * u_branch2Str;
+  branches2 *= smoothstep(0.0, 0.75, bolt + 0.3);
+  bolt = max(bolt, branches2);
+
+  // Subtle per-cell electric shimmer keeps the crack veins alive without a
+  // busy flicker (reference veins drift/pulse slowly).
+  float shimmer = 0.9 + 0.1 * sin(t * 2.6 + dot(nearCell, vec2(1.7, 2.3)));
+  bolt *= shimmer;
+
   float crisp = (1.0 - smoothstep(0.0, u_crispW, edge)) * u_crispInt;
 
   float cloud = fbm(p * u_cloudScale + t * u_warpSpeed * 0.7);
@@ -116,6 +133,7 @@ uniform float u_flameOut, u_freqAlong, u_freqAcross, u_flameScroll, u_flicker, u
 uniform vec3 u_coreColor, u_midColor, u_haloColor;
 uniform float u_coreInt, u_midInt, u_haloInt;
 uniform float u_tail, u_headBoost, u_heartbeat;
+uniform float u_spikeFreq, u_spikeAmt, u_spikeSharp, u_spikeSpeed, u_spikeGlow, u_spikeWidth;
 
 const float HALF_PI = 1.5707963267948966;
 
@@ -199,7 +217,6 @@ void main(){
   vec2 ringi = dir * (u_innerFreq / 6.28318530718);
   float rn = fbm(ringi + vec2(0.0, sd * 0.5 + 7.0));
   dEff += (1.0 - outside) * (rn - 0.5) * u_flameOut * 0.5;
-  dEff = max(dEff, 0.0);
 
   float core = exp(-pow(d / max(u_coreW, 0.5), 2.0));
   float mid  = exp(-pow(dEff / max(u_midW, 1.0), 2.0));
@@ -209,14 +226,17 @@ void main(){
   halo *= 1.0 + u_topBias * topw;
   mid  *= 1.0 + u_topBias * 0.5 * topw;
 
+  // Clockwise perimeter reveal with a bright leading head: the outline draws
+  // itself from the top-centre around the card as u_reveal ramps 0->1 (sr is
+  // the clockwise perimeter position). Once complete it stays lit and breathes.
   float head = u_reveal;
-  float formed = smoothstep(0.94, 1.0, u_reveal);
-  float started = smoothstep(0.0, 0.015, head);
-  float drawn = (1.0 - smoothstep(head, head + 0.02, sr)) * started;
+  float formed = smoothstep(0.985, 1.0, u_reveal);
+  float started = smoothstep(0.0, 0.02, head);
+  float drawn = (1.0 - smoothstep(head, head + 0.015, sr)) * started;
   float vis = max(drawn, formed);
   float headGlow =
-      smoothstep(head - 0.06, head, sr) *
-      (1.0 - smoothstep(head, head + 0.02, sr)) *
+      smoothstep(head - 0.05, head, sr) *
+      (1.0 - smoothstep(head, head + 0.015, sr)) *
       (1.0 - formed) * started;
 
   float fl = 0.85 + 0.15 * sin(u_time * u_flicker + ang * 6.0);
@@ -230,6 +250,53 @@ void main(){
   col *= fl * hb * vis;
   float edgeEnv = exp(-pow(dEff / max(u_midW, 1.0), 2.0));
   col += u_coreColor * headGlow * u_headBoost * edgeEnv;
+
+  // ---- independent spike/bump layer ----
+  // A crown of tiny bright flecks poking outward from the border, added on
+  // TOP of the finished band above as its own thin glowing shell. This is
+  // deliberately kept OUT of the core/mid/halo distance math (d/dEff): once
+  // the spike offset was baked into those, every spike peak pushed the main
+  // exponential bands to their brightest point, which read as sudden
+  // brightness pops breaking the flow of the main energy — this layer never
+  // touches d/dEff/core/mid/halo, so that flow is fully untouched.
+  //
+  // Noise-space RADIUS is fixed (spikeLoopR) and independent of spikeFreq,
+  // which instead controls how many times the angle wraps around that
+  // circle as s sweeps 0->1. Do NOT use radius = spikeFreq/2pi: at low
+  // spikeFreq that shrinks the sampling circle below the noise grid's cell
+  // pitch (1.0), so the path barely leaves a single grid cell and the
+  // "spikes" collapse onto wherever that one cell's gradient happens to
+  // peak (they bunched up near just two corners before this fix).
+  float spikeAng = s * 6.28318530718 * max(u_spikeFreq, 1.0);
+  vec2 spikeDir = vec2(cos(spikeAng), sin(spikeAng));
+  const float spikeLoopR = 9.0;
+  vec2 spikeRing = spikeDir * spikeLoopR;
+  float spikeBase = vnoise(spikeRing);
+  float spikeFine = vnoise(spikeRing * 2.3 + 19.0);
+  float spikeRaw = spikeBase * 0.7 + spikeFine * 0.3;
+  float spikeRidge = 1.0 - abs(spikeRaw * 2.0 - 1.0);
+
+  // Each spike flickers independently IN PLACE, using a phase derived from
+  // its own static noise value (not from position along the ring), so
+  // nearby spikes pulse out of sync with each other but none of them drift
+  // sideways (the reference loop keeps every spike's position frozen).
+  float shimmerPhase = spikeBase * 41.0 + spikeFine * 17.0;
+  float shimmer = 0.82 + 0.18 * sin(u_time * u_spikeSpeed * 5.0 + shimmerPhase);
+  float spikeOut = pow(clamp(spikeRidge, 0.0, 1.0), u_spikeSharp) * shimmer;
+
+  // Fill continuously from the border (d=0) out to the spike tip — not just
+  // a thin ring at the tip — so there's no dark gap between the base glow
+  // and where the spike ends. Colour blends from the hot core near the
+  // border to the border's own magenta glow colour further out, matching
+  // the same palette as the main band. Still NOT blended into d/dEff, and
+  // only visible where there's an actual spike (valleys stay clean) and
+  // only on the outside of the card.
+  float spikeReach = spikeOut * u_spikeAmt;
+  float wedgeFill = 1.0 - smoothstep(spikeReach, spikeReach + u_spikeWidth, d);
+  float wedgeMask = smoothstep(0.08, 0.4, spikeOut) * outside * vis;
+  float hotness = 1.0 - smoothstep(0.0, max(spikeReach, 0.5), d);
+  vec3 spikeCol = mix(u_midColor, u_coreColor, hotness);
+  col += spikeCol * wedgeFill * wedgeMask * u_spikeGlow;
 
   float a = clamp(max(max(col.r, col.g), col.b), 0.0, 1.0);
   o_color = vec4(col, a);
@@ -251,6 +318,9 @@ export const INNER_UNIFORM_NAMES = [
   "u_branchStr",
   "u_branchScale",
   "u_branchSharp",
+  "u_branch2Str",
+  "u_branch2Scale",
+  "u_branch2Sharp",
   "u_filStrength",
   "u_filScale",
   "u_filLo",
@@ -300,4 +370,10 @@ export const OUTER_UNIFORM_NAMES = [
   "u_tail",
   "u_headBoost",
   "u_heartbeat",
+  "u_spikeFreq",
+  "u_spikeAmt",
+  "u_spikeSharp",
+  "u_spikeSpeed",
+  "u_spikeGlow",
+  "u_spikeWidth",
 ];

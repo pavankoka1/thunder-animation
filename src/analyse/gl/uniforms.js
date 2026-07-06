@@ -16,6 +16,9 @@ export function applyInnerUniforms(gl, u, cfg, frame) {
   gl.uniform1f(u.u_branchStr, cfg.branchStrength);
   gl.uniform1f(u.u_branchScale, cfg.branchScale);
   gl.uniform1f(u.u_branchSharp, cfg.branchSharp);
+  gl.uniform1f(u.u_branch2Str, cfg.branch2Strength);
+  gl.uniform1f(u.u_branch2Scale, cfg.branch2Scale);
+  gl.uniform1f(u.u_branch2Sharp, cfg.branch2Sharp);
   gl.uniform1f(u.u_filStrength, cfg.filStrength);
   gl.uniform1f(u.u_filScale, cfg.filScale);
   gl.uniform1f(u.u_filLo, cfg.filLo);
@@ -66,4 +69,10 @@ export function applyOuterUniforms(gl, u, cfg, frame) {
   gl.uniform1f(u.u_tail, cfg.tailLength);
   gl.uniform1f(u.u_headBoost, cfg.headBoost);
   gl.uniform1f(u.u_heartbeat, cfg.heartbeat);
+  gl.uniform1f(u.u_spikeFreq, cfg.spikeFreq);
+  gl.uniform1f(u.u_spikeAmt, cfg.spikeAmount);
+  gl.uniform1f(u.u_spikeSharp, cfg.spikeSharpness);
+  gl.uniform1f(u.u_spikeSpeed, cfg.spikeSpeed);
+  gl.uniform1f(u.u_spikeGlow, cfg.spikeGlow);
+  gl.uniform1f(u.u_spikeWidth, cfg.spikeWidth);
 }

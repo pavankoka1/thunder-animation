@@ -68,7 +68,19 @@ export function paintFrame(renderer, tMs) {
     h,
   } = renderer;
 
-  const reveal = formationProgress(tMs, outerConfig.formationMs, outerConfig.easing);
+  // Matches the reference clip: outer border crawl starts at t0 (parallel
+  // with the CSS scale-settle in AnalyseBetspot.jsx), inner energy fades in
+  // ~90ms later once the scale has settled. No vibration/shake.
+  const innerReveal = formationProgress(
+    tMs - (innerConfig.delayMs ?? 0),
+    innerConfig.formationMs,
+    innerConfig.easing
+  );
+  const outerReveal = formationProgress(
+    tMs - (outerConfig.delayMs ?? 0),
+    outerConfig.formationMs,
+    outerConfig.easing
+  );
   const timeSec = elapsedSeconds(tMs);
 
   gl.viewport(0, 0, w, h);
@@ -76,11 +88,11 @@ export function paintFrame(renderer, tMs) {
   gl.clear(gl.COLOR_BUFFER_BIT);
 
   gl.useProgram(innerProgram);
-  applyInnerUniforms(gl, innerU, innerConfig, { body, reveal, tMs });
+  applyInnerUniforms(gl, innerU, innerConfig, { body, reveal: innerReveal, tMs });
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   gl.useProgram(outerProgram);
-  applyOuterUniforms(gl, outerU, outerConfig, { timeSec, reveal, w, h, rect });
+  applyOuterUniforms(gl, outerU, outerConfig, { timeSec, reveal: outerReveal, w, h, rect });
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }
 
