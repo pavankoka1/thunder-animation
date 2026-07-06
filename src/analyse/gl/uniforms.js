@@ -1,0 +1,69 @@
+import { elapsedSeconds } from "../utils/time.js";
+
+export function applyInnerUniforms(gl, u, cfg, frame) {
+  const { body, reveal, tMs } = frame;
+  gl.uniform2f(u.u_res, body.size[0], body.size[1]);
+  gl.uniform2f(u.u_bodyOffset, body.offset[0], body.offset[1]);
+  gl.uniform1f(u.u_time, elapsedSeconds(tMs) * cfg.timeScale);
+  gl.uniform1f(u.u_seedSpeed, cfg.seedSpeed);
+  gl.uniform1f(u.u_seedDrift, cfg.seedDrift);
+  gl.uniform1f(u.u_warpSpeed, cfg.warpSpeed);
+  gl.uniform1f(u.u_warpAmount, cfg.warpAmount);
+  gl.uniform2f(u.u_cellScale, cfg.cellScaleX, cfg.cellScaleY);
+  gl.uniform1f(u.u_boltWidth, cfg.boltWidth);
+  gl.uniform1f(u.u_boltSharp, cfg.boltSharp);
+  gl.uniform1f(u.u_boltVary, cfg.boltVary);
+  gl.uniform1f(u.u_branchStr, cfg.branchStrength);
+  gl.uniform1f(u.u_branchScale, cfg.branchScale);
+  gl.uniform1f(u.u_branchSharp, cfg.branchSharp);
+  gl.uniform1f(u.u_filStrength, cfg.filStrength);
+  gl.uniform1f(u.u_filScale, cfg.filScale);
+  gl.uniform1f(u.u_filLo, cfg.filLo);
+  gl.uniform1f(u.u_filHi, cfg.filHi);
+  gl.uniform1f(u.u_crispW, cfg.crispWidth);
+  gl.uniform1f(u.u_crispInt, cfg.crispIntensity);
+  gl.uniform1f(u.u_nodeSize, cfg.nodeSize);
+  gl.uniform1f(u.u_nodeSharp, cfg.nodeSharp);
+  gl.uniform1f(u.u_nodeInt, cfg.nodeIntensity);
+  gl.uniform1f(u.u_cloudScale, cfg.cloudScale);
+  gl.uniform1f(u.u_cloudAmount, cfg.cloudAmount);
+  gl.uniform3fv(u.u_baseColor, cfg.baseColor);
+  gl.uniform3fv(u.u_haloColor, cfg.haloColor);
+  gl.uniform3fv(u.u_coreColor, cfg.coreColor);
+  gl.uniform1f(u.u_baseInt, cfg.baseIntensity);
+  gl.uniform1f(u.u_haloInt, cfg.haloIntensity);
+  gl.uniform1f(u.u_coreInt, cfg.coreIntensity);
+  gl.uniform1f(u.u_coreThresh, cfg.coreThreshold);
+  gl.uniform1f(u.u_edgeR, cfg.edgeRadius);
+  gl.uniform1f(u.u_edgeSoft, cfg.edgeSoftness);
+  gl.uniform1f(u.u_opacity, reveal);
+}
+
+export function applyOuterUniforms(gl, u, cfg, frame) {
+  const { timeSec, reveal, w, h, rect } = frame;
+  gl.uniform2f(u.u_res, w, h);
+  gl.uniform1f(u.u_time, timeSec);
+  gl.uniform1f(u.u_reveal, reveal);
+  gl.uniform2f(u.u_center, rect.center[0], rect.center[1]);
+  gl.uniform2f(u.u_half, rect.half[0], rect.half[1]);
+  gl.uniform1f(u.u_radius, rect.radius);
+  gl.uniform1f(u.u_coreW, cfg.coreWidth);
+  gl.uniform1f(u.u_midW, cfg.midWidth);
+  gl.uniform1f(u.u_haloW, cfg.haloWidth);
+  gl.uniform1f(u.u_flameOut, cfg.flameOutreach);
+  gl.uniform1f(u.u_freqAlong, cfg.freqAlong);
+  gl.uniform1f(u.u_freqAcross, cfg.freqAcross);
+  gl.uniform1f(u.u_flameScroll, cfg.flameScroll);
+  gl.uniform1f(u.u_flicker, cfg.flicker);
+  gl.uniform1f(u.u_innerFreq, cfg.innerRaggedFreq);
+  gl.uniform1f(u.u_topBias, cfg.topBias);
+  gl.uniform3fv(u.u_coreColor, cfg.coreColor);
+  gl.uniform3fv(u.u_midColor, cfg.midColor);
+  gl.uniform3fv(u.u_haloColor, cfg.haloColor);
+  gl.uniform1f(u.u_coreInt, cfg.coreIntensity);
+  gl.uniform1f(u.u_midInt, cfg.midIntensity);
+  gl.uniform1f(u.u_haloInt, cfg.haloIntensity);
+  gl.uniform1f(u.u_tail, cfg.tailLength);
+  gl.uniform1f(u.u_headBoost, cfg.headBoost);
+  gl.uniform1f(u.u_heartbeat, cfg.heartbeat);
+}

@@ -1,40 +1,17 @@
-import { useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import AnalyseBetspot from "../analyse/AnalyseBetspot.jsx";
-import PlasmaControls from "../analyse/PlasmaControls.jsx";
-import { PLASMA_CONFIG } from "../analyse/plasmaGL.js";
-import { OUTER_CONFIG } from "../analyse/outerBorderGL.js";
-import { THEMES } from "../analyse/spec.js";
+import { THEMES, themeConfig } from "../analyse/config/index.js";
 import "./AnalysePage.css";
 
-function themedView(base, overrides) {
-  return new Proxy(base, {
-    get: (target, key) => (key in overrides ? overrides[key] : target[key]),
-    set: (target, key, value) => {
-      (key in overrides ? overrides : target)[key] = value;
-      return true;
-    },
-    has: (target, key) => key in overrides || key in target,
-  });
-}
-
 export default function AnalysePage() {
-  const configRef = useRef(null);
-  if (!configRef.current) configRef.current = structuredClone(PLASMA_CONFIG);
-  const config = configRef.current;
-
-  const outerConfigRef = useRef(null);
-  if (!outerConfigRef.current) outerConfigRef.current = structuredClone(OUTER_CONFIG);
-  const outerConfig = outerConfigRef.current;
-
-  const viewsRef = useRef(null);
-  if (!viewsRef.current) {
-    viewsRef.current = THEMES.map((theme) => ({
-      theme,
-      config: themedView(config, structuredClone(theme.inner)),
-      outerConfig: themedView(outerConfig, structuredClone(theme.outer)),
-    }));
-  }
-  const views = viewsRef.current;
+  const views = useMemo(
+    () =>
+      THEMES.map((theme) => ({
+        theme,
+        ...themeConfig(theme),
+      })),
+    []
+  );
 
   const [playSignal, setPlaySignal] = useState(0);
 
@@ -46,10 +23,9 @@ export default function AnalysePage() {
         </a>
         <h1 className="analyse-page__title">Analyse — inner energy</h1>
         <p className="analyse-page__subtitle">
-          Four coloured betspots (blue, green, yellow, pink) sharing one shape/motion
-          config. The body, glow and top-bar are pure CSS; the inner energy and outer
-          border are two WebGL shaders. Only the colours differ per betspot. Open the
-          controls to tune shape and motion live across all four.
+          Four coloured betspots sharing one shape and motion config. Body, glow, and
+          top-bar are CSS; inner plasma and outer border are WebGL shaders. Tune defaults
+          in <code>src/analyse/config/</code> and reload.
         </p>
       </header>
 
@@ -68,14 +44,12 @@ export default function AnalysePage() {
           <AnalyseBetspot
             key={view.theme.key}
             theme={view.theme}
-            config={view.config}
-            outerConfig={view.outerConfig}
+            innerConfig={view.inner}
+            outerConfig={view.outer}
             playSignal={playSignal}
           />
         ))}
       </div>
-
-      <PlasmaControls config={config} outerConfig={outerConfig} />
     </div>
   );
 }

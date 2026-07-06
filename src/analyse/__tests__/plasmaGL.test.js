@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { elapsedSeconds, PLASMA_CONFIG } from "../plasmaGL.js";
+import { PLASMA_CONFIG } from "../config/inner.js";
+import { elapsedSeconds } from "../utils/time.js";
 
 describe("elapsedSeconds", () => {
   it("converts ms to seconds", () => {
@@ -8,15 +9,13 @@ describe("elapsedSeconds", () => {
   });
 
   it("clamps the negative first-frame timestamp to 0", () => {
-    // requestAnimationFrame's first callback can fire fractionally before the
-    // captured start time, yielding a tiny negative elapsed value.
     expect(elapsedSeconds(-3)).toBe(0);
     expect(elapsedSeconds(0)).toBe(0);
   });
 });
 
 describe("PLASMA_CONFIG", () => {
-  it("exposes the tunable keys the control panel binds to", () => {
+  it("exposes tunable numeric keys", () => {
     for (const key of [
       "cellScaleX",
       "cellScaleY",
