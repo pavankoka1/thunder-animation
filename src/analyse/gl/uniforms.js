@@ -1,32 +1,31 @@
 import { elapsedSeconds } from "../utils/time.js";
 
 export function applyInnerUniforms(gl, u, cfg, frame) {
-  const { body, reveal, tMs } = frame;
+  const { body, reveal, tMs, tex, texOffset, texScale } = frame;
   gl.uniform2f(u.u_res, body.size[0], body.size[1]);
   gl.uniform2f(u.u_bodyOffset, body.offset[0], body.offset[1]);
   gl.uniform1f(u.u_time, elapsedSeconds(tMs) * cfg.timeScale);
-  gl.uniform1f(u.u_seedSpeed, cfg.seedSpeed);
-  gl.uniform1f(u.u_seedDrift, cfg.seedDrift);
+
+  // Bind the traced neural network texture to unit 0.
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.uniform1i(u.u_tex, 0);
+  gl.uniform2f(u.u_texOffset, texOffset[0], texOffset[1]);
+  gl.uniform2f(u.u_texScale, texScale[0], texScale[1]);
+  gl.uniform1f(u.u_lodSharp, cfg.lodSharp);
+  gl.uniform1f(u.u_lodBlur, cfg.lodBlur);
+  gl.uniform1f(u.u_deLump, cfg.deLump);
+  gl.uniform1f(u.u_boltLo, cfg.boltLo);
+  gl.uniform1f(u.u_boltHi, cfg.boltHi);
+  gl.uniform1f(u.u_nodeLo, cfg.nodeLo);
+  gl.uniform1f(u.u_nodeSharp, cfg.nodeSharp);
+  gl.uniform1f(u.u_crispLo, cfg.crispLo);
+  gl.uniform1f(u.u_crispInt, cfg.crispIntensity);
+  gl.uniform1f(u.u_flow, cfg.flow);
+  gl.uniform1f(u.u_flowFreq, cfg.flowFreq);
+  gl.uniform1f(u.u_flowAmt, cfg.flowAmt);
   gl.uniform1f(u.u_warpSpeed, cfg.warpSpeed);
   gl.uniform1f(u.u_warpAmount, cfg.warpAmount);
-  gl.uniform2f(u.u_cellScale, cfg.cellScaleX, cfg.cellScaleY);
-  gl.uniform1f(u.u_boltWidth, cfg.boltWidth);
-  gl.uniform1f(u.u_boltSharp, cfg.boltSharp);
-  gl.uniform1f(u.u_boltVary, cfg.boltVary);
-  gl.uniform1f(u.u_branchStr, cfg.branchStrength);
-  gl.uniform1f(u.u_branchScale, cfg.branchScale);
-  gl.uniform1f(u.u_branchSharp, cfg.branchSharp);
-  gl.uniform1f(u.u_branch2Str, cfg.branch2Strength);
-  gl.uniform1f(u.u_branch2Scale, cfg.branch2Scale);
-  gl.uniform1f(u.u_branch2Sharp, cfg.branch2Sharp);
-  gl.uniform1f(u.u_filStrength, cfg.filStrength);
-  gl.uniform1f(u.u_filScale, cfg.filScale);
-  gl.uniform1f(u.u_filLo, cfg.filLo);
-  gl.uniform1f(u.u_filHi, cfg.filHi);
-  gl.uniform1f(u.u_crispW, cfg.crispWidth);
-  gl.uniform1f(u.u_crispInt, cfg.crispIntensity);
-  gl.uniform1f(u.u_nodeSize, cfg.nodeSize);
-  gl.uniform1f(u.u_nodeSharp, cfg.nodeSharp);
   gl.uniform1f(u.u_nodeInt, cfg.nodeIntensity);
   gl.uniform1f(u.u_cloudScale, cfg.cloudScale);
   gl.uniform1f(u.u_cloudAmount, cfg.cloudAmount);
@@ -69,10 +68,12 @@ export function applyOuterUniforms(gl, u, cfg, frame) {
   gl.uniform1f(u.u_tail, cfg.tailLength);
   gl.uniform1f(u.u_headBoost, cfg.headBoost);
   gl.uniform1f(u.u_heartbeat, cfg.heartbeat);
-  gl.uniform1f(u.u_spikeFreq, cfg.spikeFreq);
-  gl.uniform1f(u.u_spikeAmt, cfg.spikeAmount);
-  gl.uniform1f(u.u_spikeSharp, cfg.spikeSharpness);
-  gl.uniform1f(u.u_spikeSpeed, cfg.spikeSpeed);
-  gl.uniform1f(u.u_spikeGlow, cfg.spikeGlow);
-  gl.uniform1f(u.u_spikeWidth, cfg.spikeWidth);
+  gl.uniform1f(u.u_lumpAmt, cfg.lumpAmount);
+  gl.uniform1f(u.u_lumpWidth, cfg.lumpWidth);
+  gl.uniform1f(u.u_lumpSoft, cfg.lumpSoft);
+  gl.uniform1f(u.u_lumpDrift, cfg.lumpDrift);
+  gl.uniform1f(u.u_lumpBreath, cfg.lumpBreath);
+  gl.uniform1f(u.u_lumpJitter, cfg.lumpJitter);
+  gl.uniform1f(u.u_lumpGlow, cfg.lumpGlow);
+  gl.uniform1f(u.u_lumpCount, cfg.lumpCount);
 }

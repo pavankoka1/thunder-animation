@@ -354,7 +354,7 @@ export function traceSkeletonPolylines(skel, w, h, mapPoint = (p) => p) {
   return paths;
 }
 
-function findJunctions(skel, w, h, mapPoint = (p) => p) {
+export function findJunctions(skel, w, h, mapPoint = (p) => p) {
   const junctions = [];
   for (let y = 0; y < h; y += 1) {
     for (let x = 0; x < w; x += 1) {

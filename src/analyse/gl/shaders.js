@@ -10,23 +10,35 @@ uniform vec2 u_res;
 uniform vec2 u_bodyOffset;
 uniform float u_time;
 
-uniform float u_seedSpeed, u_seedDrift, u_warpSpeed, u_warpAmount;
-uniform vec2 u_cellScale;
-uniform float u_boltWidth, u_boltSharp, u_boltVary;
-uniform float u_branchStr, u_branchScale, u_branchSharp;
-uniform float u_branch2Str, u_branch2Scale, u_branch2Sharp;
-uniform float u_filStrength, u_filScale, u_filLo, u_filHi;
-uniform float u_crispW, u_crispInt;
-uniform float u_nodeSize, u_nodeSharp, u_nodeInt, u_cloudScale, u_cloudAmount;
+// The path NETWORK now comes from the traced neural reference (u_tex): the
+// bolt/node/crisp fields are read from the real image so the paths are the
+// hub-and-spoke web we built. Everything DOWNSTREAM — the colour pipeline
+// (base+halo+core+crisp+node+cloud), the palette, the slow flowing warp and
+// the shimmer — is the ORIGINAL plasma treatment, unchanged, so the textures,
+// colours and movement match the old animation exactly.
+uniform sampler2D u_tex;
+uniform vec2 u_texOffset;   // cover-crop origin into the image (0..1)
+uniform vec2 u_texScale;    // cover-crop size into the image (0..1)
+// The path NETWORK is read the CLEAN way from two mipmap LODs — a sharp one
+// for the veins and a heavily-blurred one whose broad glow is subtracted to
+// de-lump the hub. Mipmap sampling is smooth (no grain, no procedural noise),
+// so the paths stay clean & connected.
+uniform float u_lodSharp;   // mipmap LOD for the vein signal (smooth veins)
+uniform float u_lodBlur;    // mipmap LOD for the broad glow (de-lump reference)
+uniform float u_deLump;     // subtract this * broad glow → de-lumps the hub
+uniform float u_boltLo, u_boltHi;   // vein glow curve (smooth)
+uniform float u_nodeLo, u_nodeSharp; // bright hub → star-burst node
+uniform float u_crispLo, u_crispInt; // white-hot vein cores
+uniform float u_flow, u_flowFreq, u_flowAmt; // gentle outward pulse (emergence)
+uniform float u_warpSpeed, u_warpAmount; // flowing domain warp (movement)
+uniform float u_cloudScale, u_cloudAmount;
+uniform float u_nodeInt;
 uniform vec3 u_baseColor, u_haloColor, u_coreColor;
 uniform float u_baseInt, u_haloInt, u_coreInt, u_coreThresh;
 uniform float u_edgeR, u_edgeSoft;
 uniform float u_opacity;
 
 float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
-vec2 hash2(vec2 p){
-  return fract(sin(vec2(dot(p, vec2(127.1,311.7)), dot(p, vec2(269.5,183.3)))) * 43758.5453);
-}
 float vnoise(vec2 p){
   vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
   float a = hash(i), b = hash(i+vec2(1,0)), c = hash(i+vec2(0,1)), d = hash(i+vec2(1,1));
@@ -37,69 +49,54 @@ float fbm(vec2 p){
   for (int i = 0; i < 4; i++){ s += vnoise(p)*a; p *= 2.03; a *= 0.5; }
   return s;
 }
+float luma(vec3 c){ return max(max(c.r, c.g), c.b); }
 
 void main(){
   vec2 uv = (gl_FragCoord.xy - u_bodyOffset) / u_res;
   float inBody = step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0);
   float t = u_time;
 
-  vec2 p = uv * u_cellScale;
-  vec2 w = vec2(fbm(p*0.9 + t*u_warpSpeed), fbm(p*0.9 + 7.3 - t*u_warpSpeed));
-  p += (w - 0.5) * u_warpAmount;
+  // Domain warp — the ORIGINAL Voronoi movement numbers (cellScale 10x5),
+  // now warping the SAMPLE coordinate of the baked path field. The two fbm
+  // octaves scroll with opposite time signs → a swirling flow with ~zero net
+  // drift, so the whole web breathes/morphs (never hovers, never strobes).
+  vec2 pcell = uv * vec2(10.0, 5.0);
+  vec2 wv = vec2(
+    fbm(pcell * 0.9 + t * u_warpSpeed),
+    fbm(pcell * 0.9 + 7.3 - t * u_warpSpeed)
+  ) - 0.5;
+  vec2 suv = clamp(uv + (wv * u_warpAmount) / vec2(10.0, 5.0), 0.0, 1.0);
+  vec2 tuv = u_texOffset + suv * u_texScale;
 
-  vec2 g = floor(p), f = p - g;
-  float F1 = 9.0, F2 = 9.0, F3 = 9.0;
-  vec2 nearCell = g;
-  for (int y = -1; y <= 1; y++){
-    for (int x = -1; x <= 1; x++){
-      vec2 off = vec2(float(x), float(y));
-      vec2 seed = hash2(g + off);
-      vec2 pos = off + 0.5 + u_seedDrift * sin(t*u_seedSpeed + 6.2831*seed);
-      float d = length(pos - f);
-      if (d < F1) { F3 = F2; F2 = F1; F1 = d; nearCell = g + off; }
-      else if (d < F2) { F3 = F2; F2 = d; }
-      else if (d < F3) { F3 = d; }
-    }
-  }
+  // Clean vein signal from mipmap LODs — smooth, no grain, no procedural
+  // noise. A sharp LOD gives the veins; a heavily-blurred LOD gives the broad
+  // glow, which we subtract so the bright centre reads as distinct radiating
+  // paths (de-lumped) instead of a solid blob. Veins survive because they're
+  // finer than the blurred glow → clean, connected paths.
+  float sharp = luma(textureLod(u_tex, tuv, u_lodSharp).rgb);
+  float glow = luma(textureLod(u_tex, tuv, u_lodBlur).rgb);
+  float detail = clamp(sharp - u_deLump * glow, 0.0, 1.0);
+  float bolt = smoothstep(u_boltLo, u_boltHi, detail);
 
-  float edge = F2 - F1;
-  float junction = 1.0 - smoothstep(0.0, u_nodeSize, F3 - F1);
-  float node = pow(clamp(junction, 0.0, 1.0), u_nodeSharp);
+  // Per-cell shimmer — ±10% only, phase varied per Voronoi cell (NOT keyed off
+  // brightness, so it breathes rather than strobes) — exactly the original.
+  bolt *= 0.9 + 0.1 * sin(t * 2.6 + hash(floor(pcell)) * 6.2831);
 
-  float cellVar = 1.0 + u_boltVary * (hash(nearCell + 3.3) - 0.5) * 2.0;
-  float bw = max(0.01, u_boltWidth * cellVar);
-  float bolt = pow(clamp(1.0 - edge / bw, 0.0, 1.0), u_boltSharp);
+  // Gentle outward pulse: energy flows hub → edge so the web ties to the hub.
+  float rad = distance(uv, vec2(0.5));
+  float wave = 0.5 + 0.5 * sin(rad * u_flowFreq - t * u_flow);
+  bolt *= 1.0 + u_flowAmt * (wave * 2.0 - 1.0);
 
-  float fil = fbm(p * u_filScale + t * u_warpSpeed * 1.6);
-  bolt = max(bolt, smoothstep(u_filLo, u_filHi, fil) * bolt * u_filStrength);
+  // Hub star-burst node from the bright centre.
+  float node = pow(smoothstep(u_nodeLo, 1.0, sharp), u_nodeSharp);
+  // White-hot cores on the strong veins.
+  float crisp = smoothstep(u_crispLo, 1.0, detail) * u_crispInt;
 
-  float rn = fbm(p * u_branchScale + vec2(11.0) + t * u_warpSpeed * 2.0);
-  float ridge = 1.0 - abs(rn * 2.0 - 1.0);
-  float branches = pow(clamp(ridge, 0.0, 1.0), u_branchSharp) * u_branchStr;
-  branches *= smoothstep(0.0, 0.55, bolt + 0.15);
-  bolt = max(bolt, branches);
-
-  // Secondary finer branch layer — rotated ~43deg and at a higher frequency
-  // than the primary layer so twigs shoot off the main veins at varied
-  // angles, matching the denser fractal lightning reference (more branches
-  // overall, not just thicker single veins).
-  vec2 p2 = vec2(p.x * 0.731 - p.y * 0.682, p.x * 0.682 + p.y * 0.731);
-  float rn2 = fbm(p2 * u_branch2Scale + vec2(53.0) - t * u_warpSpeed * 2.4);
-  float ridge2 = 1.0 - abs(rn2 * 2.0 - 1.0);
-  float branches2 = pow(clamp(ridge2, 0.0, 1.0), u_branch2Sharp) * u_branch2Str;
-  branches2 *= smoothstep(0.0, 0.75, bolt + 0.3);
-  bolt = max(bolt, branches2);
-
-  // Subtle per-cell electric shimmer keeps the crack veins alive without a
-  // busy flicker (reference veins drift/pulse slowly).
-  float shimmer = 0.9 + 0.1 * sin(t * 2.6 + dot(nearCell, vec2(1.7, 2.3)));
-  bolt *= shimmer;
-
-  float crisp = (1.0 - smoothstep(0.0, u_crispW, edge)) * u_crispInt;
-
-  float cloud = fbm(p * u_cloudScale + t * u_warpSpeed * 0.7);
+  // Procedural cloud base texture — identical to the original plasma.
+  float cloud = fbm(uv * u_cloudScale + t * u_warpSpeed * 0.7);
   cloud = mix(1.0, cloud, u_cloudAmount);
 
+  // ---- ORIGINAL colour pipeline (unchanged) ----
   vec3 base = u_baseColor * u_baseInt * (0.5 + cloud);
   vec3 halo = u_haloColor * bolt * u_haloInt;
   vec3 core = u_coreColor * u_coreInt * pow(clamp((bolt - u_coreThresh) / (1.0 - u_coreThresh), 0.0, 1.0), 2.0);
@@ -133,7 +130,7 @@ uniform float u_flameOut, u_freqAlong, u_freqAcross, u_flameScroll, u_flicker, u
 uniform vec3 u_coreColor, u_midColor, u_haloColor;
 uniform float u_coreInt, u_midInt, u_haloInt;
 uniform float u_tail, u_headBoost, u_heartbeat;
-uniform float u_spikeFreq, u_spikeAmt, u_spikeSharp, u_spikeSpeed, u_spikeGlow, u_spikeWidth;
+uniform float u_lumpAmt, u_lumpWidth, u_lumpSoft, u_lumpDrift, u_lumpBreath, u_lumpJitter, u_lumpGlow, u_lumpCount;
 
 const float HALF_PI = 1.5707963267948966;
 
@@ -251,52 +248,54 @@ void main(){
   float edgeEnv = exp(-pow(dEff / max(u_midW, 1.0), 2.0));
   col += u_coreColor * headGlow * u_headBoost * edgeEnv;
 
-  // ---- independent spike/bump layer ----
-  // A crown of tiny bright flecks poking outward from the border, added on
-  // TOP of the finished band above as its own thin glowing shell. This is
-  // deliberately kept OUT of the core/mid/halo distance math (d/dEff): once
-  // the spike offset was baked into those, every spike peak pushed the main
-  // exponential bands to their brightest point, which read as sudden
-  // brightness pops breaking the flow of the main energy — this layer never
-  // touches d/dEff/core/mid/halo, so that flow is fully untouched.
-  //
-  // Noise-space RADIUS is fixed (spikeLoopR) and independent of spikeFreq,
-  // which instead controls how many times the angle wraps around that
-  // circle as s sweeps 0->1. Do NOT use radius = spikeFreq/2pi: at low
-  // spikeFreq that shrinks the sampling circle below the noise grid's cell
-  // pitch (1.0), so the path barely leaves a single grid cell and the
-  // "spikes" collapse onto wherever that one cell's gradient happens to
-  // peak (they bunched up near just two corners before this fix).
-  float spikeAng = s * 6.28318530718 * max(u_spikeFreq, 1.0);
-  vec2 spikeDir = vec2(cos(spikeAng), sin(spikeAng));
-  const float spikeLoopR = 9.0;
-  vec2 spikeRing = spikeDir * spikeLoopR;
-  float spikeBase = vnoise(spikeRing);
-  float spikeFine = vnoise(spikeRing * 2.3 + 19.0);
-  float spikeRaw = spikeBase * 0.7 + spikeFine * 0.3;
-  float spikeRidge = 1.0 - abs(spikeRaw * 2.0 - 1.0);
+  // ---- outer LUMP layer (summed gaussians) ----
+  // Rounded IRREGULAR bumps bulging OUTWARD from the border, replacing the old
+  // pointed spikes. Discrete lumps: each has a hash-jittered CENTER
+  // (irregular spacing), its own WIDTH and HEIGHT; the whole crown slowly
+  // DRIFTS around the perimeter and each lump BREATHES out of sync. Pure
+  // additive shell on the OUTSIDE only — never touches d/dEff or the
+  // core/mid/halo band math, so the main flow is untouched. Seam-free at
+  // s=0/1: per-lump distance uses a wrapped signed distance, centres are
+  // fract()'d so drift wraps cleanly.
+  // Density (u_lumpCount) is a LIVE uniform, not a compile-time constant:
+  // GLSL ES 3.00 loop bounds must still be a constant expression on some
+  // backends, so the loop always runs to a fixed LUMP_MAX and bails out
+  // early past u_lumpCount via the break below.
+  const int LUMP_MAX = 48; // upper bound for the lumpCount density uniform
+  float lumpH = 0.0; // summed gaussian bump height at this s
+  // Shell guard: the loop only runs in the thin outside band where a lump
+  // could actually paint — skips the whole interior and far exterior.
+  if (outside > 0.5 && vis > 0.0 && d < u_lumpAmt * 1.6) {
+    float lumpDrift = u_time * u_lumpDrift; // whole crown slides around the loop
+    for (int i = 0; i < LUMP_MAX; i++){
+      if (float(i) >= u_lumpCount) break;
+      float fi = float(i);
+      float hPos = hash(vec2(fi, 1.7)); // decorrelated per-lump randoms
+      float hWid = hash(vec2(fi, 9.3));
+      float hHgt = hash(vec2(fi, 4.1));
+      // irregular spacing: even slot + jittered offset, drifted, wrapped 0..1
+      float center = fract((fi + u_lumpJitter * (hPos - 0.5)) / u_lumpCount + lumpDrift);
+      // irregular width (perimeter units), guarded away from zero
+      float width = u_lumpWidth * (0.55 + 0.9 * hWid);
+      // irregular height, each breathing out of phase (phase from its own hash)
+      float breathe = 0.62 + 0.38 * sin(u_time * u_lumpBreath + hPos * 6.28318530718);
+      float height = (0.4 + 0.6 * hHgt) * breathe;
+      // seam-safe signed distance from this lump centre: [-0.5, 0.5)
+      float ds = fract(s - center + 0.5) - 0.5;
+      float e = ds / width;
+      lumpH += height * exp(-e * e); // rounded gaussian bump
+    }
+    lumpH = clamp(lumpH, 0.0, 1.5); // tame overlap over-saturation
+  }
 
-  // Each spike flickers independently IN PLACE, using a phase derived from
-  // its own static noise value (not from position along the ring), so
-  // nearby spikes pulse out of sync with each other but none of them drift
-  // sideways (the reference loop keeps every spike's position frozen).
-  float shimmerPhase = spikeBase * 41.0 + spikeFine * 17.0;
-  float shimmer = 0.82 + 0.18 * sin(u_time * u_spikeSpeed * 5.0 + shimmerPhase);
-  float spikeOut = pow(clamp(spikeRidge, 0.0, 1.0), u_spikeSharp) * shimmer;
-
-  // Fill continuously from the border (d=0) out to the spike tip — not just
-  // a thin ring at the tip — so there's no dark gap between the base glow
-  // and where the spike ends. Colour blends from the hot core near the
-  // border to the border's own magenta glow colour further out, matching
-  // the same palette as the main band. Still NOT blended into d/dEff, and
-  // only visible where there's an actual spike (valleys stay clean) and
-  // only on the outside of the card.
-  float spikeReach = spikeOut * u_spikeAmt;
-  float wedgeFill = 1.0 - smoothstep(spikeReach, spikeReach + u_spikeWidth, d);
-  float wedgeMask = smoothstep(0.08, 0.4, spikeOut) * outside * vis;
-  float hotness = 1.0 - smoothstep(0.0, max(spikeReach, 0.5), d);
-  vec3 spikeCol = mix(u_midColor, u_coreColor, hotness);
-  col += spikeCol * wedgeFill * wedgeMask * u_spikeGlow;
+  // Thin outward fill shell: from the border (d=0) out to the bump top, only
+  // where a lump exists (valleys stay clean), only outside, only when revealed.
+  // Single glow layer — the inner, hot core colour only (no outer mid-colour
+  // halo blended in further out).
+  float lumpReach = lumpH * u_lumpAmt;
+  float lumpFill = 1.0 - smoothstep(lumpReach, lumpReach + u_lumpSoft, d);
+  float lumpMask = smoothstep(0.05, 0.30, lumpH) * outside * vis;
+  col += u_coreColor * lumpFill * lumpMask * u_lumpGlow;
 
   float a = clamp(max(max(col.r, col.g), col.b), 0.0, 1.0);
   o_color = vec4(col, a);
@@ -307,31 +306,26 @@ export const INNER_UNIFORM_NAMES = [
   "u_res",
   "u_bodyOffset",
   "u_time",
-  "u_seedSpeed",
-  "u_seedDrift",
+  "u_tex",
+  "u_texOffset",
+  "u_texScale",
+  "u_lodSharp",
+  "u_lodBlur",
+  "u_deLump",
+  "u_boltLo",
+  "u_boltHi",
+  "u_nodeLo",
+  "u_nodeSharp",
+  "u_crispLo",
+  "u_crispInt",
+  "u_flow",
+  "u_flowFreq",
+  "u_flowAmt",
   "u_warpSpeed",
   "u_warpAmount",
-  "u_cellScale",
-  "u_boltWidth",
-  "u_boltSharp",
-  "u_boltVary",
-  "u_branchStr",
-  "u_branchScale",
-  "u_branchSharp",
-  "u_branch2Str",
-  "u_branch2Scale",
-  "u_branch2Sharp",
-  "u_filStrength",
-  "u_filScale",
-  "u_filLo",
-  "u_filHi",
-  "u_crispW",
-  "u_crispInt",
-  "u_nodeSize",
-  "u_nodeSharp",
-  "u_nodeInt",
   "u_cloudScale",
   "u_cloudAmount",
+  "u_nodeInt",
   "u_baseColor",
   "u_haloColor",
   "u_coreColor",
@@ -370,10 +364,12 @@ export const OUTER_UNIFORM_NAMES = [
   "u_tail",
   "u_headBoost",
   "u_heartbeat",
-  "u_spikeFreq",
-  "u_spikeAmt",
-  "u_spikeSharp",
-  "u_spikeSpeed",
-  "u_spikeGlow",
-  "u_spikeWidth",
+  "u_lumpAmt",
+  "u_lumpWidth",
+  "u_lumpSoft",
+  "u_lumpDrift",
+  "u_lumpBreath",
+  "u_lumpJitter",
+  "u_lumpGlow",
+  "u_lumpCount",
 ];

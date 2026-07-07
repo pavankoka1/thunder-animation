@@ -2,8 +2,10 @@ import { elapsedSeconds, formationProgress } from "../utils/time.js";
 import {
   bindFullscreenTriangle,
   bindUniformLocations,
+  createImageTexture,
   createWebGL2Context,
   linkProgram,
+  uploadImageToTexture,
 } from "./context.js";
 import {
   FULLSCREEN_VERT,
@@ -36,6 +38,8 @@ export function createRenderer(canvas, { innerConfig, outerConfig, layout }) {
 
   const { w, h, body, rect } = layout;
 
+  const innerTex = createImageTexture(gl);
+
   return {
     gl,
     innerProgram,
@@ -48,7 +52,34 @@ export function createRenderer(canvas, { innerConfig, outerConfig, layout }) {
     rect,
     w,
     h,
+    innerTex,
+    texOffset: [0, 0],
+    texScale: [1, 1],
   };
+}
+
+/**
+ * Upload the traced neural reference and compute a cover-crop (fill the body,
+ * crop overflow) so the network keeps its own aspect. `texZoom` < 1 pulls
+ * further into the centre.
+ */
+export function setReferenceImage(renderer, image) {
+  if (!renderer || !image) return;
+  const { gl, innerTex, body, innerConfig } = renderer;
+  uploadImageToTexture(gl, innerTex, image);
+
+  const bodyAspect = body.size[0] / body.size[1];
+  const imgAspect = image.width / image.height;
+  let sx = 1;
+  let sy = 1;
+  if (imgAspect >= bodyAspect) sx = bodyAspect / imgAspect;
+  else sy = imgAspect / bodyAspect;
+
+  const zoom = innerConfig.texZoom ?? 1;
+  sx *= zoom;
+  sy *= zoom;
+  renderer.texScale = [sx, sy];
+  renderer.texOffset = [(1 - sx) / 2, (1 - sy) / 2];
 }
 
 export function paintFrame(renderer, tMs) {
@@ -66,6 +97,9 @@ export function paintFrame(renderer, tMs) {
     rect,
     w,
     h,
+    innerTex,
+    texOffset,
+    texScale,
   } = renderer;
 
   // Matches the reference clip: outer border crawl starts at t0 (parallel
@@ -88,7 +122,14 @@ export function paintFrame(renderer, tMs) {
   gl.clear(gl.COLOR_BUFFER_BIT);
 
   gl.useProgram(innerProgram);
-  applyInnerUniforms(gl, innerU, innerConfig, { body, reveal: innerReveal, tMs });
+  applyInnerUniforms(gl, innerU, innerConfig, {
+    body,
+    reveal: innerReveal,
+    tMs,
+    tex: innerTex,
+    texOffset,
+    texScale,
+  });
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   gl.useProgram(outerProgram);

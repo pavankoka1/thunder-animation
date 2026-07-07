@@ -1,6 +1,6 @@
 /** Stage geometry (178×106 design space) and render sizing. */
 
-export const SUPERSAMPLE = 3;
+export const SUPERSAMPLE = 4;
 
 export const STAGE = {
   width: 178,
@@ -32,6 +32,8 @@ export const CHIP = {
 export const LAYER_URLS = {
   chip: "/analyse/chip.png",
   reference: "/analyse/reference.png",
+  // Traced neural reference — source of the inner path network.
+  neural: "/analyse/neural-reference.jpg",
 };
 
 /** CSS display scale (design px → screen px). Canvas uses SUPERSAMPLE internally. */

@@ -29,6 +29,35 @@ export function bindUniformLocations(gl, program, names) {
   return u;
 }
 
+/**
+ * Create a 2D texture for a single non-mipmapped RGBA image (LINEAR, clamp to
+ * edge). Upload pixels later with uploadImageToTexture once the image loads.
+ */
+export function createImageTexture(gl) {
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+    new Uint8Array([0, 0, 0, 255]));
+  return tex;
+}
+
+/** Upload an <img>/ImageBitmap/canvas into an existing texture. */
+export function uploadImageToTexture(gl, tex, image) {
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+  // Mipmaps → smooth minification of the (larger) traced image into the small
+  // body region, killing the rough/aliased sampling. WebGL2 supports NPOT
+  // mipmaps, so no power-of-two resize is needed.
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+}
+
 /** Shared fullscreen triangle at attribute location 0. */
 export function bindFullscreenTriangle(gl) {
   const buf = gl.createBuffer();

@@ -17,17 +17,20 @@ describe("elapsedSeconds", () => {
 describe("PLASMA_CONFIG", () => {
   it("exposes tunable numeric keys", () => {
     for (const key of [
-      "cellScaleX",
-      "cellScaleY",
-      "boltWidth",
-      "boltSharp",
-      "boltVary",
-      "branchStrength",
+      "texZoom",
+      "lodSharp",
+      "lodBlur",
+      "deLump",
+      "boltLo",
+      "boltHi",
+      "nodeLo",
+      "nodeSharp",
+      "crispLo",
       "crispIntensity",
       "haloIntensity",
       "coreIntensity",
       "timeScale",
-      "seedSpeed",
+      "warpAmount",
     ]) {
       expect(PLASMA_CONFIG).toHaveProperty(key);
       expect(typeof PLASMA_CONFIG[key]).toBe("number");
