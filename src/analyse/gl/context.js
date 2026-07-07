@@ -76,3 +76,26 @@ export function createWebGL2Context(canvas) {
   if (!gl) throw new Error("webgl2 unavailable");
   return gl;
 }
+
+/**
+ * Try WebGL2 first, fall back to WebGL1 for browsers/devices that don't
+ * expose it (older GPU drivers, some software renderers). Callers that use
+ * this must ship a GLSL ES 1.00 shader variant for the `isWebGL2: false`
+ * case — WebGL1 has no `#version 300 es`, `texture()`, `out vec4`, or
+ * array-constructor syntax. Also requires OES_texture_float for any float
+ * data texture the caller uploads (checked here, not deferred to a later
+ * texImage2D failure).
+ */
+export function createGLContext(canvas) {
+  const contextOptions = { alpha: true, premultipliedAlpha: true, antialias: false };
+
+  const gl2 = canvas.getContext("webgl2", contextOptions);
+  if (gl2) return { gl: gl2, isWebGL2: true };
+
+  const gl1 = canvas.getContext("webgl", contextOptions);
+  if (!gl1) throw new Error("WebGL unavailable (tried webgl2 and webgl)");
+  if (!gl1.getExtension("OES_texture_float")) {
+    throw new Error("WebGL1 fallback unavailable: OES_texture_float unsupported");
+  }
+  return { gl: gl1, isWebGL2: false };
+}

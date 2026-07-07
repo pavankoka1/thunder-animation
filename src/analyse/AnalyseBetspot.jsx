@@ -114,13 +114,13 @@ export default function AnalyseBetspot({
           }}
           aria-hidden
         />
-        <img
+        {/* <img
           src={LAYER_URLS.chip}
           alt=""
           className="analyse-betspot__layer analyse-betspot__chip"
           style={layerStyle(CHIP, scale)}
           draggable={false}
-        />
+        /> */}
         {!ready && <span className="analyse-betspot__status">Baking energy field…</span>}
       </button>
 

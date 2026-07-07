@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { BODY, CHIP, LAYER_URLS, STAGE, SUPERSAMPLE, TOP_BAR } from "../analyse/config/layout.js";
+import { OUTER_CONFIG } from "../analyse/config/outer.js";
+import { useReducedMotion } from "../analyse/hooks/useReducedMotion.js";
 import { computeRendererLayout, layerStyle } from "../analyse/utils/layout.js";
+import { elapsedSeconds } from "../analyse/utils/time.js";
 import {
   createLichtenbergRenderer,
+  destroyLichtenbergRenderer,
+  paintComposite,
   paintLichtenberg,
+  paintOuterBorder,
   setNetwork,
 } from "../extractPath/lichtenbergRenderer.js";
 import { loadExtractedNetwork } from "../extractPath/loadExtractedNetwork.js";
@@ -11,14 +17,23 @@ import "./ExtractPathPage.css";
 
 const SCALE = 1;
 
+// The outer border shader (see src/analyse/gl/shaders.js OUTER_FRAG) is
+// built around a one-time "reveal" crawl gesture that AnalyseBetspot
+// triggers on a button click. This page has no such gesture — the border
+// should just read as fully formed from the first frame — so reveal is
+// pinned to 1 and only the ambient (breathing/drift/flicker) motion runs.
+const OUTER_FRAME_STYLE = { reveal: 1 };
+
 export default function ExtractPathPage() {
   const canvasRef = useRef(null);
   const rendererRef = useRef(null);
   const [ready, setReady] = useState(false);
+  const [error, setError] = useState(null);
   const [widthScale, setWidthScale] = useState(1);
   const [thickness, setThickness] = useState(1);
   const [centerBoost, setCenterBoost] = useState(1.6);
   const [edgeMix, setEdgeMix] = useState(1.0);
+  const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -31,11 +46,20 @@ export default function ExtractPathPage() {
       body: BODY,
       supersample: SUPERSAMPLE,
     });
-    const renderer = createLichtenbergRenderer(canvas, layout);
-    rendererRef.current = renderer;
-    setReady(true);
+
+    try {
+      rendererRef.current = createLichtenbergRenderer(canvas, layout);
+      setReady(true);
+      setError(null);
+    } catch (err) {
+      console.error("Failed to init WebGL Lichtenberg renderer", err);
+      rendererRef.current = null;
+      setReady(false);
+      setError(err instanceof Error ? err.message : "WebGL init failed");
+    }
 
     return () => {
+      destroyLichtenbergRenderer(rendererRef.current);
       rendererRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -106,6 +130,47 @@ export default function ExtractPathPage() {
     });
   }, [ready, widthScale, thickness, centerBoost, edgeMix]);
 
+  // Ambient motion loop: cheap per-frame passes only (paintComposite +
+  // paintOuterBorder) — the expensive network bake above only re-runs when
+  // its own inputs change, not every frame. See lichtenbergRenderer.js for
+  // why this two-pass split exists (an 8000-path brute-force search re-run
+  // at 60fps would not be cheap).
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!ready || !renderer) return undefined;
+
+    const { w, h, rect } = renderer.layout;
+    const paintFrame = (timeSec) => {
+      paintComposite(renderer, { time: timeSec });
+      paintOuterBorder(renderer, OUTER_CONFIG, { timeSec, w, h, rect, ...OUTER_FRAME_STYLE });
+    };
+
+    if (reducedMotion) {
+      paintFrame(0);
+      return undefined;
+    }
+
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now) => {
+      paintFrame(elapsedSeconds(now - start));
+      raf = requestAnimationFrame(tick);
+    };
+
+    const onVisibility = () => {
+      cancelAnimationFrame(raf);
+      if (!document.hidden) raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [ready, reducedMotion]);
+
   const stageW = STAGE.width * SCALE;
   const stageH = STAGE.height * SCALE;
 
@@ -157,7 +222,12 @@ export default function ExtractPathPage() {
             style={layerStyle(CHIP, SCALE)}
             draggable={false}
           />
-          {!ready && (
+          {error && (
+            <span className="extract-path-betspot__status">
+              {error} — try reloading the page.
+            </span>
+          )}
+          {!ready && !error && (
             <span className="extract-path-betspot__status">
               Loading extracted network…
             </span>

@@ -340,6 +340,175 @@ void main(){
 }
 `;
 
+/**
+ * GLSL ES 1.00 (WebGL1) mirror of OUTER_FRAG, consumed by extract-path's
+ * WebGL1 fallback renderer (src/extractPath/lichtenbergRenderer.js). This
+ * shader has no texture reads and no ES-3.00 array-constructor syntax, so
+ * the only differences from OUTER_FRAG are `out vec4 o_color` -> gl_FragColor.
+ * Keep in sync with OUTER_FRAG if that shader changes.
+ */
+export const OUTER_FRAG_GL1 = `
+precision highp float;
+
+uniform vec2 u_res;
+uniform float u_time;
+uniform float u_reveal;
+
+uniform vec2 u_center;
+uniform vec2 u_half;
+uniform float u_radius;
+
+uniform float u_coreW, u_midW, u_haloW;
+uniform float u_flameOut, u_freqAlong, u_freqAcross, u_flameScroll, u_flicker, u_innerFreq, u_topBias;
+uniform vec3 u_coreColor, u_midColor, u_haloColor;
+uniform float u_coreInt, u_midInt, u_haloInt;
+uniform float u_tail, u_headBoost, u_heartbeat;
+uniform float u_lumpAmt, u_lumpWidth, u_lumpSoft, u_lumpDrift, u_lumpBreath, u_lumpJitter, u_lumpGlow, u_lumpCount;
+
+const float HALF_PI = 1.5707963267948966;
+
+float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  float a = hash(i), b = hash(i+vec2(1,0)), c = hash(i+vec2(0,1)), d = hash(i+vec2(1,1));
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+}
+float fbm(vec2 p){
+  float s = 0.0, a = 0.5;
+  for (int i = 0; i < 4; i++){ s += vnoise(p)*a; p *= 2.03; a *= 0.5; }
+  return s;
+}
+
+float sdRoundBox(vec2 p, vec2 b, float r){
+  vec2 q = abs(p) - (b - vec2(r));
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+
+float perimeterS(vec2 local, vec2 halfv, float r){
+  vec2 b = halfv - vec2(r);
+  float Wt = 2.0 * b.x;
+  float Hs = 2.0 * b.y;
+  float A  = HALF_PI * r;
+  float Pp = 2.0 * Wt + 2.0 * Hs + 4.0 * A;
+
+  bool right  = local.x > 0.0;
+  bool bottom = local.y > 0.0;
+  vec2 d = abs(local) - b;
+  bool corner = d.x > 0.0 && d.y > 0.0;
+
+  float len;
+  if (!corner) {
+    if (d.x <= 0.0) {
+      if (!bottom) len = (local.x + b.x);
+      else         len = Wt + 2.0*A + Hs + (b.x - local.x);
+    } else {
+      if (right) len = Wt + A + (local.y + b.y);
+      else       len = 2.0*Wt + 3.0*A + Hs + (b.y - local.y);
+    }
+  } else if (right && !bottom) {
+    vec2 v = vec2(local.x - b.x, local.y + b.y);
+    len = Wt + A * (atan(v.x, -v.y) / HALF_PI);
+  } else if (right && bottom) {
+    vec2 v = vec2(local.x - b.x, local.y - b.y);
+    len = Wt + A + Hs + A * (atan(v.y, v.x) / HALF_PI);
+  } else if (!right && bottom) {
+    vec2 v = vec2(local.x + b.x, local.y - b.y);
+    len = 2.0*Wt + Hs + 2.0*A + A * (atan(-v.x, v.y) / HALF_PI);
+  } else {
+    vec2 v = vec2(local.x + b.x, local.y + b.y);
+    len = 2.0*Wt + 2.0*Hs + 3.0*A + A * (atan(-v.y, -v.x) / HALF_PI);
+  }
+  return len / Pp;
+}
+
+void main(){
+  vec2 P = vec2(gl_FragCoord.x, u_res.y - gl_FragCoord.y);
+  vec2 local = P - u_center;
+
+  float sd = sdRoundBox(local, u_half, u_radius);
+  float d  = abs(sd);
+  float outside = step(0.0, sd);
+
+  float s = perimeterS(local, u_half, u_radius);
+
+  vec2 bb = u_half - vec2(u_radius);
+  float Wt = 2.0 * bb.x, Hs = 2.0 * bb.y, A = HALF_PI * u_radius;
+  float Pp = 2.0 * Wt + 2.0 * Hs + 4.0 * A;
+  float sApex = (2.0 * Wt + 2.0 * Hs + 3.5 * A) / Pp;
+  float sr = fract(s - sApex + 1.0);
+
+  float ang = s * 6.28318530718;
+  vec2 dir = vec2(cos(ang), sin(ang));
+  float scroll = u_time * u_flameScroll;
+  vec2 ring = dir * (u_freqAlong / 6.28318530718);
+  float n = fbm(ring + vec2(scroll, sd / max(u_freqAcross, 1.0)));
+
+  float dEff = d - n * u_flameOut * (0.4 + 0.6 * outside);
+  vec2 ringi = dir * (u_innerFreq / 6.28318530718);
+  float rn = fbm(ringi + vec2(0.0, sd * 0.5 + 7.0));
+  dEff += (1.0 - outside) * (rn - 0.5) * u_flameOut * 0.5;
+
+  float core = exp(-pow(d / max(u_coreW, 0.5), 2.0));
+  float mid  = exp(-pow(dEff / max(u_midW, 1.0), 2.0));
+  float halo = exp(-pow(dEff / max(u_haloW, 1.0), 2.0)) * (0.5 + 0.5 * n);
+
+  float topw = clamp(-local.y / u_half.y, 0.0, 1.0);
+  halo *= 1.0 + u_topBias * topw;
+  mid  *= 1.0 + u_topBias * 0.5 * topw;
+
+  float head = u_reveal;
+  float formed = smoothstep(0.985, 1.0, u_reveal);
+  float started = smoothstep(0.0, 0.02, head);
+  float drawn = (1.0 - smoothstep(head, head + 0.015, sr)) * started;
+  float vis = max(drawn, formed);
+  float headGlow =
+      smoothstep(head - 0.05, head, sr) *
+      (1.0 - smoothstep(head, head + 0.015, sr)) *
+      (1.0 - formed) * started;
+
+  float fl = 0.85 + 0.15 * sin(u_time * u_flicker + ang * 6.0);
+  float t = u_time;
+  float pulse = clamp(0.55 + 0.30 * sin(t * 2.1) + 0.18 * sin(t * 4.7 + 0.7), 0.25, 1.0);
+  float hb = mix(1.0, 0.82 + u_heartbeat * pulse, formed);
+
+  vec3 col = u_coreColor * core * u_coreInt
+           + u_midColor  * mid  * u_midInt
+           + u_haloColor * halo * u_haloInt;
+  col *= fl * hb * vis;
+  float edgeEnv = exp(-pow(dEff / max(u_midW, 1.0), 2.0));
+  col += u_coreColor * headGlow * u_headBoost * edgeEnv;
+
+  const int LUMP_MAX = 48;
+  float lumpH = 0.0;
+  if (outside > 0.5 && vis > 0.0 && d < u_lumpAmt * 1.6) {
+    float lumpDrift = u_time * u_lumpDrift;
+    for (int i = 0; i < LUMP_MAX; i++){
+      if (float(i) >= u_lumpCount) break;
+      float fi = float(i);
+      float hPos = hash(vec2(fi, 1.7));
+      float hWid = hash(vec2(fi, 9.3));
+      float hHgt = hash(vec2(fi, 4.1));
+      float center = fract((fi + u_lumpJitter * (hPos - 0.5)) / u_lumpCount + lumpDrift);
+      float width = u_lumpWidth * (0.55 + 0.9 * hWid);
+      float breathe = 0.62 + 0.38 * sin(u_time * u_lumpBreath + hPos * 6.28318530718);
+      float height = (0.4 + 0.6 * hHgt) * breathe;
+      float ds = fract(s - center + 0.5) - 0.5;
+      float e = ds / width;
+      lumpH += height * exp(-e * e);
+    }
+    lumpH = clamp(lumpH, 0.0, 1.5);
+  }
+
+  float lumpReach = lumpH * u_lumpAmt;
+  float lumpFill = 1.0 - smoothstep(lumpReach, lumpReach + u_lumpSoft, d);
+  float lumpMask = smoothstep(0.05, 0.30, lumpH) * outside * vis;
+  col += u_coreColor * lumpFill * lumpMask * u_lumpGlow;
+
+  float a = clamp(max(max(col.r, col.g), col.b), 0.0, 1.0);
+  gl_FragColor = vec4(col, a);
+}
+`;
+
 export const INNER_UNIFORM_NAMES = [
   "u_res",
   "u_bodyOffset",

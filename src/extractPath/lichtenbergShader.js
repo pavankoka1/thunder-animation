@@ -181,6 +181,228 @@ void main() {
 }
 `;
 
+export const VERT_GL1 = `
+attribute vec2 a_pos;
+void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
+`;
+
+/**
+ * GLSL ES 1.00 (WebGL1) mirror of FRAG, used when WebGL2 isn't available.
+ * Same math throughout — differences are syntax-only: texture2D() instead
+ * of texture(), gl_FragColor instead of out vec4, attribute instead of
+ * layout(location=0) in, and no array-constructor initializer (ES 3.00
+ * only) for the sub-pixel offsets. See FRAG for the rendering rationale.
+ */
+export const FRAG_GL1 = `
+precision highp float;
+
+uniform vec2 u_res;
+uniform vec2 u_bodyOffset;
+uniform float u_radius;
+
+uniform int u_numPaths;
+uniform sampler2D u_pointTex;
+uniform sampler2D u_countTex;
+
+uniform float u_coreSigmaMul, u_glowSigmaMul, u_outerSigmaMul;
+uniform float u_coreAlpha, u_glowAlpha, u_outerAlpha;
+uniform vec3 u_coreColor, u_glowColor, u_outerColor;
+
+uniform vec3 u_edgeColor;
+uniform float u_edgeStart, u_edgePow, u_edgeMix;
+uniform vec3 u_ambientColor;
+uniform float u_ambientAlpha;
+
+float sdRoundBox(vec2 p, vec2 b, float r) {
+  vec2 q = abs(p) - (b - vec2(r));
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+
+vec3 readPoint(int pathIdx, int ptIdx) {
+  float u = (float(ptIdx) + 0.5) / float(${MAX_POINTS_PER_PATH});
+  float v = (float(pathIdx) + 0.5) / float(${MAX_PATHS});
+  return texture2D(u_pointTex, vec2(u, v)).xyz;
+}
+
+int readPathPointCount(int pathIdx) {
+  float u = (float(pathIdx) + 0.5) / float(${MAX_PATHS});
+  return int(texture2D(u_countTex, vec2(u, 0.5)).r * float(${MAX_POINTS_PER_PATH}) + 0.5);
+}
+
+void findNearest(vec2 p, out float bestD, out float bestW) {
+  bestD = 1e9;
+  bestW = 1.0;
+
+  for (int path = 0; path < ${MAX_PATHS}; path++) {
+    if (path >= u_numPaths) break;
+    int ptCount = readPathPointCount(path);
+    int segCount = ptCount - 1;
+    if (segCount <= 0) continue;
+
+    for (int i = 0; i < ${MAX_POINTS_PER_PATH - 1}; i++) {
+      if (i >= segCount) break;
+      vec3 pa = readPoint(path, i);
+      vec3 pb = readPoint(path, i + 1);
+      vec2 a = pa.xy;
+      vec2 b = pb.xy;
+      vec2 ab = b - a;
+      float len2 = dot(ab, ab);
+      float t = len2 < 1e-6 ? 0.0 : clamp(dot(p - a, ab) / len2, 0.0, 1.0);
+      float d = length(p - (a + ab * t));
+      if (d < bestD) {
+        bestD = d;
+        bestW = mix(pa.z, pb.z, t);
+      }
+    }
+  }
+}
+
+void main() {
+  vec2 pix = gl_FragCoord.xy - u_bodyOffset;
+  vec2 halfRes = u_res * 0.5;
+
+  float sd = sdRoundBox(pix - halfRes, halfRes, u_radius);
+  float inBody = 1.0 - smoothstep(-1.0, 1.0, sd);
+
+  float insetDist = min(halfRes.x, halfRes.y) * 0.4;
+  float edgeT = 1.0 - clamp(-sd / insetDist, 0.0, 1.0);
+  float edgeMixT = pow(clamp((edgeT - u_edgeStart) / max(1.0 - u_edgeStart, 1e-4), 0.0, 1.0), u_edgePow) * u_edgeMix;
+  vec3 coreColorAt = mix(u_coreColor, u_edgeColor, edgeMixT * 0.55);
+  vec3 glowColorAt = mix(u_glowColor, u_edgeColor, edgeMixT);
+  vec3 outerColorAt = mix(u_outerColor, u_edgeColor, edgeMixT);
+
+  vec2 offsets[4];
+  offsets[0] = vec2(0.25, 0.25);
+  offsets[1] = vec2(0.75, 0.25);
+  offsets[2] = vec2(0.25, 0.75);
+  offsets[3] = vec2(0.75, 0.75);
+
+  vec3 col = vec3(0.0);
+  for (int s = 0; s < 4; s++) {
+    vec2 samplePix = pix + offsets[s] - vec2(0.5);
+    float bestD, bestW;
+    findNearest(samplePix, bestD, bestW);
+
+    float coreHalfW = max(0.4, bestW * u_coreSigmaMul);
+    float core = (1.0 - smoothstep(coreHalfW - 0.75, coreHalfW + 0.75, bestD)) * u_coreAlpha;
+
+    float glowSigma = max(0.5, bestW * u_glowSigmaMul);
+    float outerSigma = max(0.8, bestW * u_outerSigmaMul);
+    float edgeBoost = 1.0 + edgeMixT * 4.5;
+    float glow = exp(-(bestD * bestD) / (2.0 * glowSigma * glowSigma)) * u_glowAlpha * edgeBoost;
+    float outer = exp(-(bestD * bestD) / (2.0 * outerSigma * outerSigma)) * u_outerAlpha * edgeBoost;
+
+    col += outerColorAt * outer + glowColorAt * glow + coreColorAt * core;
+  }
+  col *= 0.25;
+
+  vec3 ambientColorAt = mix(u_ambientColor, u_edgeColor, edgeMixT);
+  col += ambientColorAt * u_ambientAlpha * (1.0 + edgeMixT * 7.0);
+
+  float a = clamp(max(max(col.r, col.g), col.b), 0.0, 1.0) * inBody;
+  gl_FragColor = vec4(col * inBody, a);
+}
+`;
+
+/**
+ * Cheap per-frame compositing pass: samples the lichtenberg network baked by
+ * FRAG/FRAG_GL1 (an expensive O(MAX_PATHS * MAX_POINTS_PER_PATH) per-fragment
+ * search, only re-run when the network/style actually changes — see
+ * lichtenbergRenderer.js) and modulates its brightness with cheap time-based
+ * terms. This is what gives the extracted (real, traced) network the same
+ * "breathing energy" feel as /analyse's procedural plasma without re-running
+ * that expensive search every animation frame — and without ever moving the
+ * traced stroke positions themselves, so the real path shapes stay exact.
+ */
+export const COMPOSITE_UNIFORM_NAMES = [
+  "u_bakeTex",
+  "u_res",
+  "u_time",
+  "u_shimmerAmt",
+  "u_shimmerFreq",
+  "u_pulseAmt",
+  "u_pulseFreq",
+  "u_pulseSpeed",
+  "u_bodyCenterUv",
+  "u_aspect",
+];
+
+export const COMPOSITE_FRAG = `#version 300 es
+precision highp float;
+out vec4 o_color;
+
+uniform sampler2D u_bakeTex;
+uniform vec2 u_res;
+uniform float u_time;
+uniform float u_shimmerAmt, u_shimmerFreq;
+uniform float u_pulseAmt, u_pulseFreq, u_pulseSpeed;
+uniform vec2 u_bodyCenterUv;
+uniform float u_aspect;
+
+float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  float a = hash(i), b = hash(i+vec2(1,0)), c = hash(i+vec2(0,1)), d = hash(i+vec2(1,1));
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_res;
+  vec4 tex = texture(u_bakeTex, uv);
+
+  // Radial pulse: energy breathing outward from the body's dominant hub —
+  // brightness-only, so the traced stroke positions underneath never move.
+  vec2 d = (uv - u_bodyCenterUv) * vec2(u_aspect, 1.0);
+  float rad = length(d);
+  float wave = 0.5 + 0.5 * sin(rad * u_pulseFreq - u_time * u_pulseSpeed);
+  float pulse = 1.0 + u_pulseAmt * (wave * 2.0 - 1.0);
+
+  // Low-frequency noise (not per-frame random) so the shimmer reads as a
+  // slow living flicker rather than a strobe.
+  float n = vnoise(uv * 7.0 + u_time * u_shimmerFreq);
+  float shimmer = 1.0 + u_shimmerAmt * (n * 2.0 - 1.0);
+
+  float m = max(pulse * shimmer, 0.0);
+  o_color = vec4(tex.rgb * m, clamp(tex.a * m, 0.0, 1.0));
+}
+`;
+
+/** GLSL ES 1.00 mirror of COMPOSITE_FRAG — texture2D/gl_FragColor only. */
+export const COMPOSITE_FRAG_GL1 = `
+precision highp float;
+
+uniform sampler2D u_bakeTex;
+uniform vec2 u_res;
+uniform float u_time;
+uniform float u_shimmerAmt, u_shimmerFreq;
+uniform float u_pulseAmt, u_pulseFreq, u_pulseSpeed;
+uniform vec2 u_bodyCenterUv;
+uniform float u_aspect;
+
+float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+  float a = hash(i), b = hash(i+vec2(1,0)), c = hash(i+vec2(0,1)), d = hash(i+vec2(1,1));
+  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_res;
+  vec4 tex = texture2D(u_bakeTex, uv);
+
+  vec2 d = (uv - u_bodyCenterUv) * vec2(u_aspect, 1.0);
+  float rad = length(d);
+  float wave = 0.5 + 0.5 * sin(rad * u_pulseFreq - u_time * u_pulseSpeed);
+  float pulse = 1.0 + u_pulseAmt * (wave * 2.0 - 1.0);
+
+  float n = vnoise(uv * 7.0 + u_time * u_shimmerFreq);
+  float shimmer = 1.0 + u_shimmerAmt * (n * 2.0 - 1.0);
+
+  float m = max(pulse * shimmer, 0.0);
+  gl_FragColor = vec4(tex.rgb * m, clamp(tex.a * m, 0.0, 1.0));
+}
+`;
+
 export const UNIFORM_NAMES = [
   "u_res",
   "u_bodyOffset",
