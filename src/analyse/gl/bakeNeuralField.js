@@ -30,7 +30,7 @@ import { BODY, LAYER_URLS, SUPERSAMPLE } from "../config/layout.js";
 // Moderate threshold: capture the real DISTRIBUTED network (bold trunks + the
 // connections between hubs), while dropping the faintest fuzz. Too low → fuzz
 // marble; too high → almost nothing (falls back to the synthetic network).
-const BRIGHT_THRESHOLD = 200; // r+g+b sum floor for a "bright filament" pixel
+const BRIGHT_THRESHOLD = 260; // r+g+b sum floor for a "bright filament" pixel
 const MIN_LEN_PX = 5; // drop skeleton edges shorter than this (image px)
 const DENSIFY_PX = 3; // resample vertex spacing so curves stay smooth
 const MIN_SEGMENTS = 20; // below this, use the synthetic fallback
@@ -50,8 +50,15 @@ const MAX_COVER_STRETCH = 1.18;
 // (per-junction dots were tried before and rejected as "scattered specks").
 const HUB_BRIGHT_THRESHOLD = 680; // r+g+b sum floor for a hub-blob core (near white)
 const HUB_MIN_PIXELS = 24; // drop noise specks (higher = only the real prominent blobs)
-const HUB_MAX_COUNT = 3; // cap extra hubs so it stays a handful of real nodes
+const HUB_MAX_COUNT = 4; // cap extra hubs so it stays a handful of real nodes
 const HUB_MIN_SPACING = 0.16; // min gap between two hubs, as a fraction of DIAG — stops overlapping blob "clumps"
+const HUB_EDGE_MARGIN = 10; // keep hub centres this far inside the canvas edge
+// The source photo's 4 corner clusters are its 2nd-5th brightest features
+// (right after the centre) — but coverMapping's crop maps them just OUTSIDE
+// the bake canvas (a few % past the top/bottom edge), so a strict bounds
+// filter silently drops all of them. Clamp near-miss candidates back onto the
+// canvas edge instead of discarding them so the corners aren't always empty.
+const HUB_CLAMP_OVERSHOOT = 80;
 
 // The reference mockup (reference.png) is mostly SMOOTH OPEN glow with a
 // handful of localised hub bursts + short spokes — NOT a fully-connected web
@@ -332,6 +339,23 @@ function clipToHubs(points, hubs, radius) {
   return runs;
 }
 
+/**
+ * Pull a point that overshoots the canvas by up to `overshoot` back onto the
+ * inset edge; return null if it's further out than that (a real off-frame
+ * point, not just a rounding/crop near-miss).
+ */
+function clampToCanvas(p, margin, overshoot) {
+  const clampAxis = (v, max) => {
+    if (v < margin) return v >= margin - overshoot ? margin : null;
+    if (v > max - margin) return v <= max - margin + overshoot ? max - margin : null;
+    return v;
+  };
+  const x = clampAxis(p.x, BAKE_W);
+  const y = clampAxis(p.y, BAKE_H);
+  if (x === null || y === null) return null;
+  return { x, y };
+}
+
 function clipSegsToHubs(segs, hubs, radius) {
   const out = [];
   for (const s of segs) {
@@ -394,19 +418,18 @@ function densifyBranches(segsBake) {
 }
 
 /**
- * Central hub: place a node at the canvas centre (where the image's diffuse
- * central glow — which doesn't skeletonise into lines — maps) and EXTEND the
- * nearest real path nodes into it with curved connectors, so the distributed
- * web visibly converges on a central hub (a neural network, not an empty core).
- * Curvature + connecting to real nodes at varied distances keeps it organic
- * rather than a clean radial starburst.
+ * Seed one hub's own visible burst: EXTEND the nearest real path nodes into it
+ * with curved connectors (so it visibly ties into the web where real content
+ * survived nearby) and add a small number of synthetic curved dendrites (so a
+ * hub whose real photo content got cropped away — e.g. a corner — still reads
+ * as a burst, not a bare dot). Curvature + jittered angle keeps it organic
+ * rather than a clean radial starburst. Short arms — this is a burst, not a
+ * web reaching across the whole card (see HUB_BURST_RADIUS/clipSegsToHubs).
  */
-function addCentralHub(segsBake) {
-  const rng = createRng(0x0ce27e);
-  const hub = { x: BAKE_W * 0.5, y: BAKE_H * 0.5 };
+function seedHubDendrites(hub, segsBake, { seed, tieCount, armCount, armLenRange }) {
+  const rng = createRng(seed);
   const segs = [];
 
-  // (a) Tie the hub into the web: connect the nearest real path nodes to it.
   const eps = [];
   for (const s of segsBake) {
     const p = s.points;
@@ -414,9 +437,9 @@ function addCentralHub(segsBake) {
   }
   const near = eps
     .map((p) => ({ p, d: Math.hypot(p.x - hub.x, p.y - hub.y) }))
-    .filter((o) => o.d > DIAG * 0.04 && o.d < DIAG * 0.42)
+    .filter((o) => o.d > DIAG * 0.02 && o.d < DIAG * HUB_BURST_RADIUS)
     .sort((a, b) => a.d - b.d)
-    .slice(0, 5);
+    .slice(0, tieCount);
   for (const { p } of near) {
     const len = Math.hypot(p.x - hub.x, p.y - hub.y);
     const pts = subdivideSegment(hub.x, hub.y, p.x, p.y, len * 0.16, len * 0.08, rng);
@@ -424,21 +447,15 @@ function addCentralHub(segsBake) {
     segs.push({ points: pts, base: 2.4 });
   }
 
-  // (b) FILL the empty central patch: the image centre is a diffuse glow that
-  // doesn't skeletonise into lines, so seed our own curved dendrites radiating
-  // from the hub (varied length + strong curvature + jittered angle so it's a
-  // neural soma, not a clean starburst). Short — this is a burst, not a web
-  // reaching across the whole card (see HUB_BURST_RADIUS/clipSegsToHubs).
-  const arms = 7;
-  for (let k = 0; k < arms; k += 1) {
-    const a = (k / arms) * Math.PI * 2 + randRange(rng, -0.4, 0.4);
-    const len = randRange(rng, 0.06, 0.16) * DIAG;
+  for (let k = 0; k < armCount; k += 1) {
+    const a = (k / armCount) * Math.PI * 2 + randRange(rng, -0.4, 0.4);
+    const len = randRange(rng, armLenRange[0], armLenRange[1]) * DIAG;
     const tip = { x: hub.x + Math.cos(a) * len, y: hub.y + Math.sin(a) * len };
     const pts = subdivideSegment(hub.x, hub.y, tip.x, tip.y, len * 0.32, len * 0.07, rng);
     pts[0] = { x: hub.x, y: hub.y };
     segs.push({ points: pts, base: 2.2 });
   }
-  return { segs, hub };
+  return segs;
 }
 
 function bakeToCanvas(segsBake, branchData, hubs) {
@@ -482,17 +499,17 @@ async function buildField(img) {
       const toBake = coverMapping(iw, ih);
       segsBake = segs.map((s) => ({ ...s, base: 2.8, points: s.points.map(toBake) }));
 
-      // Keep only hubs that survived the crop and aren't right on top of the
-      // central hub (already-sorted by weight, so this keeps the strongest).
-      // Greedily reject candidates too close to an already-accepted hub —
-      // without this, two nearby blobs from the same physical cluster both
-      // qualify and their glows overlap into one big soft "clump".
-      const margin = 10;
+      // Keep only hubs that survived the crop (clamping near-miss ones back
+      // onto the canvas — see HUB_CLAMP_OVERSHOOT) and aren't right on top of
+      // the central hub (already-sorted by weight, so this keeps the
+      // strongest). Greedily reject candidates too close to an
+      // already-accepted hub — without this, two nearby blobs from the same
+      // physical cluster both qualify and their glows overlap into one big
+      // soft "clump".
       const candidates = hubCandidates
         .map(toBake)
-        .filter(
-          (p) => p.x > margin && p.x < BAKE_W - margin && p.y > margin && p.y < BAKE_H - margin,
-        )
+        .map((p) => clampToCanvas(p, HUB_EDGE_MARGIN, HUB_CLAMP_OVERSHOOT))
+        .filter(Boolean)
         .filter((p) => Math.hypot(p.x - BAKE_W / 2, p.y - BAKE_H / 2) > DIAG * 0.08);
       for (const p of candidates) {
         if (extraHubs.length >= HUB_MAX_COUNT) break;
@@ -515,16 +532,27 @@ async function buildField(img) {
   }
 
   const branchData = addBranchFill(segsBake);
-  const central = addCentralHub(segsBake);
-  // Densify AFTER seeding the central dendrites so the previously-empty centre
-  // gets the same twig treatment as the rest of the web.
-  const seeded = [...segsBake, ...central.segs];
-  const twigs = densifyBranches(seeded);
-  const allSegs = [...seeded, ...twigs];
+  const centralHub = { x: BAKE_W * 0.5, y: BAKE_H * 0.5 };
   const hubs = [
-    { x: central.hub.x, y: central.hub.y, primary: true },
+    { x: centralHub.x, y: centralHub.y, primary: true },
     ...extraHubs.map((h) => ({ x: h.x, y: h.y, primary: false })),
   ];
+  // Every hub gets its OWN small burst — including corner hubs whose real
+  // photo content mostly got cropped away, so they still read as a burst
+  // instead of a bare dot. Central hub gets a slightly bigger one.
+  const hubSegs = hubs.flatMap((h, i) =>
+    seedHubDendrites(h, segsBake, {
+      seed: 0x0ce27e + i,
+      tieCount: h.primary ? 4 : 2,
+      armCount: h.primary ? 5 : 3,
+      armLenRange: h.primary ? [0.05, 0.13] : [0.04, 0.1],
+    }),
+  );
+  // Densify AFTER seeding hub dendrites so the previously-empty hub patches
+  // get the same twig treatment as the rest of the web.
+  const seeded = [...segsBake, ...hubSegs];
+  const twigs = densifyBranches(seeded);
+  const allSegs = [...seeded, ...twigs];
   const radius = DIAG * HUB_BURST_RADIUS;
   const clippedSegs = clipSegsToHubs(allSegs, hubs, radius);
   const clippedBranches = clipSegsToHubs(branchData.branches, hubs, radius);
@@ -546,12 +574,18 @@ export function getBakedNeuralCanvas() {
         // eslint-disable-next-line no-console
         console.error("[neural bake] image load failed → synthetic fallback", err);
         const syn = syntheticNetwork();
-        const central = addCentralHub(syn.segs);
-        const twigs = densifyBranches(syn.segs);
+        const hub = { x: BAKE_W * 0.5, y: BAKE_H * 0.5, primary: true };
+        const hubSegs = seedHubDendrites(hub, syn.segs, {
+          seed: 0x0ce27e,
+          tieCount: 4,
+          armCount: 5,
+          armLenRange: [0.05, 0.13],
+        });
+        const twigs = densifyBranches([...syn.segs, ...hubSegs]);
         return bakeToCanvas(
-          [...syn.segs, ...central.segs, ...twigs],
+          [...syn.segs, ...hubSegs, ...twigs],
           addBranchFill(syn.segs),
-          [central.hub],
+          [hub],
         );
       });
   }
