@@ -37,6 +37,39 @@ export const PLASMA_CONFIG = {
   pathWidth: 0.65, // multiplier on vein/branch stroke THICKNESS (↑ = thicker paths)
   branchDensity: 0.18, // multiplier on branch-twig COUNT (↓ = fewer paths / sparser)
 
+  // ---- hub cluster layout + density (CPU bake, see bakeNeuralField.js) ----
+  // The network is always anchored at 9 fixed positions — the centre, all 4
+  // edge midpoints (top/bottom/left/right), and all 4 corners — each one
+  // snapping to the nearest real bright spot from the traced photo when
+  // there's one nearby (keeping it organic/data-driven), and falling back to
+  // a small synthetic burst at that fixed position otherwise so a cluster is
+  // never empty just because the photo happened to be dim there.
+  // Per-cluster density independently scales that cluster's own arm/tie
+  // count, burst radius, and hub-glow size: 0 turns the cluster off entirely
+  // (its slot is skipped, freeing up that candidate for a bonus hub instead),
+  // 1 = default, >1 = bigger/denser burst. Only applies on a full reload.
+  hubClusterDensity: {
+    center: 1.0,
+    top: 0.8,
+    bottom: 0.8,
+    left: 0.8,
+    right: 0.8,
+    cornerTL: 1.0,
+    cornerTR: 1.0,
+    cornerBL: 1.0,
+    cornerBR: 1.0,
+  },
+  // A few bonus hubs from whatever other real bright spots remain in the
+  // photo after the 9 named slots above have claimed theirs (organic variety,
+  // wherever the photo happens to have extra bright spots) — 0 to disable.
+  extraHubCount: 2,
+  extraHubDensity: 0.7, // size/richness of each bonus hub, same scale as hubClusterDensity
+  // How far each hub's burst reaches (fraction of the card's diagonal) before
+  // the network is clipped back to open background — scaled per-hub by that
+  // hub's own density above. This is what keeps reference.png's look of
+  // isolated bursts + open glow instead of a fully-connected web.
+  hubBurstRadius: 0.17,
+
   // ---- outward energy pulse (gentle; energy reads as flowing from the hub) ----
   flow: 1.0, // outward travel speed
   flowFreq: 10.0, // pulse ring frequency

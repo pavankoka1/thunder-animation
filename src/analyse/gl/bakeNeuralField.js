@@ -50,7 +50,6 @@ const MAX_COVER_STRETCH = 1.18;
 // (per-junction dots were tried before and rejected as "scattered specks").
 const HUB_BRIGHT_THRESHOLD = 680; // r+g+b sum floor for a hub-blob core (near white)
 const HUB_MIN_PIXELS = 24; // drop noise specks (higher = only the real prominent blobs)
-const HUB_MAX_COUNT = 7; // cap extra hubs so it stays a handful of real nodes — enough to also cover the mid-card gaps between corners and centre, not just the 4 corners
 const HUB_MIN_SPACING = 0.13; // min gap between two hubs, as a fraction of DIAG — stops overlapping blob "clumps"
 const HUB_EDGE_MARGIN = 10; // keep hub centres this far inside the canvas edge
 // The source photo's 4 corner clusters are its 2nd-5th brightest features
@@ -59,12 +58,10 @@ const HUB_EDGE_MARGIN = 10; // keep hub centres this far inside the canvas edge
 // filter silently drops all of them. Clamp near-miss candidates back onto the
 // canvas edge instead of discarding them so the corners aren't always empty.
 const HUB_CLAMP_OVERSHOOT = 80;
-
-// The reference mockup (reference.png) is mostly SMOOTH OPEN glow with a
-// handful of localised hub bursts + short spokes — NOT a fully-connected web
-// covering the whole card. Everything gets clipped to within this radius of
-// a hub centre (as a fraction of DIAG) so most of the card stays open.
-const HUB_BURST_RADIUS = 0.17;
+// How far a named slot (see HUB_SLOT_KEYS) will reach to claim a real bright
+// candidate as its own, as a fraction of DIAG — beyond this it falls back to
+// a synthetic burst at the slot's fixed anchor position instead.
+const HUB_SNAP_RADIUS = 0.17;
 
 const BAKE_W = Math.round(BODY.width * SUPERSAMPLE * BAKE_SS); // 1168
 const BAKE_H = Math.round(BODY.height * SUPERSAMPLE * BAKE_SS); // 544
@@ -73,6 +70,61 @@ const DIAG = Math.hypot(BAKE_W, BAKE_H);
 // Config knobs (read once at bake time): stroke thickness + branch-twig count.
 const WIDTH_SCALE = PLASMA_CONFIG.pathWidth ?? 1;
 const DENSITY_SCALE = PLASMA_CONFIG.branchDensity ?? 1;
+
+// ---- hub cluster layout ----
+// The network is always anchored at 9 named positions — the centre, all 4
+// edge midpoints, and all 4 corners — each snapping to the nearest real
+// bright spot from the source photo when one is nearby (keeping it organic),
+// and falling back to a small synthetic burst at the fixed anchor otherwise
+// (see reference.png: mostly smooth open glow with a HANDFUL of localised
+// hub bursts, not a fully-connected web). Per-slot density is user-tunable
+// via PLASMA_CONFIG.hubClusterDensity — 0 disables that cluster entirely.
+const HUB_SLOT_KEYS = [
+  "center",
+  "top",
+  "bottom",
+  "left",
+  "right",
+  "cornerTL",
+  "cornerTR",
+  "cornerBL",
+  "cornerBR",
+];
+const HUB_SLOT_SEEDS = {
+  center: 0x0ce27e,
+  top: 0x1a2b3c,
+  bottom: 0x2b3c4d,
+  left: 0x3c4d5e,
+  right: 0x4d5e6f,
+  cornerTL: 0x5e6f70,
+  cornerTR: 0x6f7081,
+  cornerBL: 0x708192,
+  cornerBR: 0x8192a3,
+};
+const HUB_DENSITY_CONFIG = PLASMA_CONFIG.hubClusterDensity ?? {};
+const EXTRA_HUB_COUNT = PLASMA_CONFIG.extraHubCount ?? 2;
+const EXTRA_HUB_DENSITY = PLASMA_CONFIG.extraHubDensity ?? 0.7;
+// The reference mockup (reference.png) is mostly SMOOTH OPEN glow with a
+// handful of localised hub bursts + short spokes — NOT a fully-connected web
+// covering the whole card. Everything gets clipped to within this radius of
+// a hub centre (as a fraction of DIAG, scaled per-hub by that hub's density)
+// so most of the card stays open.
+const HUB_BURST_RADIUS = PLASMA_CONFIG.hubBurstRadius ?? 0.17;
+
+function hubSlotAnchors() {
+  const m = HUB_EDGE_MARGIN;
+  return {
+    center: { x: BAKE_W * 0.5, y: BAKE_H * 0.5 },
+    top: { x: BAKE_W * 0.5, y: m },
+    bottom: { x: BAKE_W * 0.5, y: BAKE_H - m },
+    left: { x: m, y: BAKE_H * 0.5 },
+    right: { x: BAKE_W - m, y: BAKE_H * 0.5 },
+    cornerTL: { x: m, y: m },
+    cornerTR: { x: BAKE_W - m, y: m },
+    cornerBL: { x: m, y: BAKE_H - m },
+    cornerBR: { x: BAKE_W - m, y: BAKE_H - m },
+  };
+}
 
 function loadImage(src) {
   return new Promise((resolve, reject) => {
@@ -318,16 +370,17 @@ function strokePath(ctx, points, baseW) {
 }
 
 /**
- * Clip a polyline to the sub-runs that fall within `radius` of ANY hub centre,
+ * Clip a polyline to the sub-runs that fall within ANY hub's own radius,
  * splitting where it exits/re-enters — this is what turns a fully-connected
  * web into isolated hub bursts with open smooth glow in between, matching the
- * reference mockup instead of covering the whole card in filaments.
+ * reference mockup instead of covering the whole card in filaments. Each hub
+ * carries its own `.radius` (scaled by that hub's density).
  */
-function clipToHubs(points, hubs, radius) {
+function clipToHubs(points, hubs) {
   const runs = [];
   let current = [];
   for (const p of points) {
-    const near = hubs.some((h) => Math.hypot(p.x - h.x, p.y - h.y) <= radius);
+    const near = hubs.some((h) => Math.hypot(p.x - h.x, p.y - h.y) <= h.radius);
     if (near) {
       current.push(p);
     } else {
@@ -356,10 +409,10 @@ function clampToCanvas(p, margin, overshoot) {
   return { x, y };
 }
 
-function clipSegsToHubs(segs, hubs, radius) {
+function clipSegsToHubs(segs, hubs) {
   const out = [];
   for (const s of segs) {
-    for (const run of clipToHubs(s.points, hubs, radius)) {
+    for (const run of clipToHubs(s.points, hubs)) {
       out.push({ ...s, points: run });
     }
   }
@@ -470,7 +523,7 @@ function seedHubDendrites(hub, segsBake, { seed, tieCount, armCount, armLenRange
   }
   const near = eps
     .map((p) => ({ p, d: Math.hypot(p.x - hub.x, p.y - hub.y) }))
-    .filter((o) => o.d > DIAG * 0.02 && o.d < DIAG * HUB_BURST_RADIUS)
+    .filter((o) => o.d > DIAG * 0.02 && o.d < hub.radius)
     .sort((a, b) => a.d - b.d)
     .slice(0, tieCount);
   for (const { p } of near) {
@@ -510,11 +563,13 @@ function bakeToCanvas(segsBake, branchData, hubs) {
   // skeleton junction, which read as scattered specks when tried before.
   // Secondary hubs are drawn a little smaller so the centre stays the
   // dominant focal point, matching the reference's one strong core + several
-  // dimmer distributed nodes.
+  // dimmer distributed nodes. Each hub's blob size scales with its own
+  // density (PLASMA_CONFIG.hubClusterDensity / extraHubDensity).
   for (const h of hubs) {
     const isSecondary = h.primary === false;
-    hubBlob(ctx, h.x, h.y, isSecondary ? 8 : 13);
-    hubBlob(ctx, h.x, h.y, isSecondary ? 3 : 6);
+    const scale = h.density ?? 1;
+    hubBlob(ctx, h.x, h.y, (isSecondary ? 8 : 13) * scale);
+    hubBlob(ctx, h.x, h.y, (isSecondary ? 3 : 6) * scale);
   }
 
   ctx.globalCompositeOperation = "source-over";
@@ -523,7 +578,7 @@ function bakeToCanvas(segsBake, branchData, hubs) {
 
 async function buildField(img) {
   let segsBake = null;
-  let extraHubs = [];
+  let candidates = [];
   try {
     const { segs, iw, ih, hubCandidates } = await extractGraph(img);
     // eslint-disable-next-line no-console
@@ -532,25 +587,13 @@ async function buildField(img) {
       const toBake = coverMapping(iw, ih);
       segsBake = segs.map((s) => ({ ...s, base: 2.8, points: s.points.map(toBake) }));
 
-      // Keep only hubs that survived the crop (clamping near-miss ones back
-      // onto the canvas — see HUB_CLAMP_OVERSHOOT) and aren't right on top of
-      // the central hub (already-sorted by weight, so this keeps the
-      // strongest). Greedily reject candidates too close to an
-      // already-accepted hub — without this, two nearby blobs from the same
-      // physical cluster both qualify and their glows overlap into one big
-      // soft "clump".
-      const candidates = hubCandidates
+      // Clamp near-miss candidates back onto the canvas edge instead of
+      // discarding them — see HUB_CLAMP_OVERSHOOT — so corner/edge clusters
+      // that the crop pushed just outside the bake canvas aren't lost.
+      candidates = hubCandidates
         .map(toBake)
         .map((p) => clampToCanvas(p, HUB_EDGE_MARGIN, HUB_CLAMP_OVERSHOOT))
-        .filter(Boolean)
-        .filter((p) => Math.hypot(p.x - BAKE_W / 2, p.y - BAKE_H / 2) > DIAG * 0.08);
-      for (const p of candidates) {
-        if (extraHubs.length >= HUB_MAX_COUNT) break;
-        const tooClose = extraHubs.some(
-          (h) => Math.hypot(h.x - p.x, h.y - p.y) < DIAG * HUB_MIN_SPACING,
-        );
-        if (!tooClose) extraHubs.push(p);
-      }
+        .filter(Boolean);
     }
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -565,19 +608,79 @@ async function buildField(img) {
   }
 
   const branchData = addBranchFill(segsBake);
-  const centralHub = { x: BAKE_W * 0.5, y: BAKE_H * 0.5 };
-  const hubs = [
-    { x: centralHub.x, y: centralHub.y, primary: true },
-    ...extraHubs.map((h) => ({ x: h.x, y: h.y, primary: false })),
-  ];
-  // Every hub gets its OWN small burst — including corner hubs whose real
-  // photo content mostly got cropped away, so they still read as a burst
-  // instead of a bare dot. Central hub gets a slightly bigger one.
+
+  // Build the 9 named cluster slots: each snaps to the nearest still-unclaimed
+  // real candidate within HUB_SNAP_RADIUS (keeping it organic/data-driven),
+  // else falls back to a synthetic burst at the slot's fixed anchor position
+  // — so a slot is never empty just because the photo happened to be dim
+  // there. Density 0 skips a slot (and its candidate stays in the pool for
+  // the bonus hubs below) — see PLASMA_CONFIG.hubClusterDensity.
+  const pool = candidates.slice();
+  const anchors = hubSlotAnchors();
+  const slotHubs = [];
+  for (const key of HUB_SLOT_KEYS) {
+    const density = HUB_DENSITY_CONFIG[key] ?? 1;
+    if (density <= 0) continue;
+    const anchor = anchors[key];
+    let pos = anchor;
+    let bestIdx = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < pool.length; i += 1) {
+      const d = Math.hypot(pool[i].x - anchor.x, pool[i].y - anchor.y);
+      if (d < bestD) {
+        bestD = d;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx >= 0 && bestD < DIAG * HUB_SNAP_RADIUS) {
+      pos = pool[bestIdx];
+      pool.splice(bestIdx, 1);
+    }
+    slotHubs.push({
+      x: pos.x,
+      y: pos.y,
+      primary: key === "center",
+      slot: key,
+      density,
+      radius: DIAG * HUB_BURST_RADIUS * density,
+    });
+  }
+
+  // A few bonus hubs from whatever other real bright spots are left in the
+  // photo (organic variety beyond the 9 named slots) — set extraHubCount to 0
+  // to disable.
+  const extraHubs = [];
+  for (const p of pool) {
+    if (extraHubs.length >= EXTRA_HUB_COUNT) break;
+    const tooClose = [...slotHubs, ...extraHubs].some(
+      (h) => Math.hypot(h.x - p.x, h.y - p.y) < DIAG * HUB_MIN_SPACING,
+    );
+    if (!tooClose) {
+      extraHubs.push({
+        x: p.x,
+        y: p.y,
+        primary: false,
+        slot: "extra",
+        density: EXTRA_HUB_DENSITY,
+        radius: DIAG * HUB_BURST_RADIUS * EXTRA_HUB_DENSITY,
+      });
+    }
+  }
+
+  const hubs = [...slotHubs, ...extraHubs];
+
+  // Every hub gets its OWN small burst — including rescued corner/edge hubs
+  // whose real photo content mostly got cropped away, so they still read as
+  // a burst instead of a bare dot. Central hub gets a slightly bigger one;
+  // arm/tie counts scale with that hub's own density.
   const hubSegs = hubs.flatMap((h, i) =>
     seedHubDendrites(h, segsBake, {
-      seed: 0x0ce27e + i,
-      tieCount: h.primary ? 4 : 2,
-      armCount: h.primary ? 5 : 3,
+      seed: (HUB_SLOT_SEEDS[h.slot] ?? 0x900000) + i,
+      // Floors so a low-density or purely-synthetic burst (no real vein data
+      // nearby, e.g. a rescued edge/corner slot) still reads as a small burst
+      // rather than vanishing to 0-1 arms.
+      tieCount: Math.max(1, Math.round((h.primary ? 4 : 2) * h.density)),
+      armCount: Math.max(3, Math.round((h.primary ? 5 : 4) * h.density)),
       armLenRange: h.primary ? [0.05, 0.13] : [0.04, 0.1],
     }),
   );
@@ -586,9 +689,8 @@ async function buildField(img) {
   const seeded = [...segsBake, ...hubSegs];
   const twigs = densifyBranches(seeded);
   const allSegs = [...seeded, ...twigs];
-  const radius = DIAG * HUB_BURST_RADIUS;
-  const clippedSegs = clipSegsToHubs(allSegs, hubs, radius);
-  const clippedBranches = clipSegsToHubs(branchData.branches, hubs, radius);
+  const clippedSegs = clipSegsToHubs(allSegs, hubs);
+  const clippedBranches = clipSegsToHubs(branchData.branches, hubs);
   const bridges = connectHubs(hubs, 0x6b12de);
   return bakeToCanvas([...clippedSegs, ...bridges], { ...branchData, branches: clippedBranches }, hubs);
 }
@@ -608,7 +710,13 @@ export function getBakedNeuralCanvas() {
         // eslint-disable-next-line no-console
         console.error("[neural bake] image load failed → synthetic fallback", err);
         const syn = syntheticNetwork();
-        const hub = { x: BAKE_W * 0.5, y: BAKE_H * 0.5, primary: true };
+        const hub = {
+          x: BAKE_W * 0.5,
+          y: BAKE_H * 0.5,
+          primary: true,
+          density: 1,
+          radius: DIAG * HUB_BURST_RADIUS,
+        };
         const hubSegs = seedHubDendrites(hub, syn.segs, {
           seed: 0x0ce27e,
           tieCount: 4,
