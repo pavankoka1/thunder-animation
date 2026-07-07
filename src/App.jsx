@@ -43,6 +43,10 @@ export default function App() {
         <a className="app__route-link" href="/webgl">
           WebGL experiment →
         </a>
+        {" · "}
+        <a className="app__route-link" href="/extract-path">
+          Extract path →
+        </a>
         <h1 className="app__title">SVG → Canvas (animated)</h1>
         <p className="app__subtitle">
           Paths are extracted from plasma.svg: 3 center thunder clusters are detected,

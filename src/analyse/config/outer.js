@@ -42,7 +42,7 @@ export const OUTER_CONFIG = {
   // distinct lumps; lumpSoft must stay > 0 or the shell edge goes hard/spiky.
   lumpCount: 30, // number of lumps around the perimeter (density)
   lumpAmount: 10.0, // max outward reach (px) of a unit-height lump
-  lumpWidth: 0.008, // half-width of each lump in perimeter fraction (s units)
+  lumpWidth: 0.009, // half-width of each lump in perimeter fraction (s units)
   lumpSoft: 8, // softness (px) of the shell's outer falloff (>0)
   lumpDrift: 0.03, // drift speed of the whole crown (loops/sec)
   lumpBreath: 5, // breathing angular speed (rad/sec) of lump heights

@@ -1,0 +1,138 @@
+.extract-path-page {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 24px 16px 40px;
+  color: #ddd;
+  background: #05070d;
+}
+
+.extract-path-page__header {
+  max-width: 620px;
+  text-align: center;
+}
+
+.extract-path-page__link {
+  display: inline-block;
+  margin-bottom: 10px;
+  font-size: 0.8125rem;
+  color: #7eb8ff;
+  text-decoration: none;
+}
+
+.extract-path-page__link:hover {
+  text-decoration: underline;
+}
+
+.extract-path-page__title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.extract-path-page__subtitle {
+  margin: 8px 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: #888;
+}
+
+.extract-path-page__subtitle code {
+  color: #aaa;
+}
+
+.extract-path-page__stage {
+  display: flex;
+  justify-content: center;
+}
+
+.extract-path-betspot {
+  position: relative;
+}
+
+.extract-path-betspot__layer,
+.extract-path-betspot__status {
+  position: absolute;
+  display: block;
+}
+
+/* Matches public/analyse/reference.png's ACTUAL body gradient (sampled
+ * directly from the image: darkest-20%-per-band background colour top to
+ * bottom was #7ac9f3 -> #6fc2f4 -> #6baaf5 -> #648ef3) — this stays a pale
+ * cyan-to-blue gradient throughout, unlike the /analyse "blue" theme body
+ * (analyse-betspot__body--blue) which drifts into purple/indigo by the
+ * bottom (#5566d8, #6a56cf) — that mismatch was part of the reported
+ * colour difference from the reference. */
+.extract-path-betspot__body {
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 15%, #d0f0ff 0%, rgba(184, 232, 255, 0) 60%),
+    linear-gradient(180deg, #8ad2f5 0%, #7ac9f3 35%, #71b8f5 65%, #6aa0f4 100%);
+  box-shadow:
+    0 0 12px 2px rgba(120, 190, 255, 0.4),
+    0 0 30px 8px rgba(100, 160, 240, 0.22);
+}
+
+.extract-path-betspot__energy {
+  z-index: 1;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.extract-path-betspot__topbar {
+  z-index: 3;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 2px solid #29b6e8;
+  background: #13324a;
+}
+
+.extract-path-betspot__chip {
+  z-index: 4;
+  pointer-events: none;
+}
+
+.extract-path-betspot__status {
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  color: #999;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.extract-path-page__controls {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.extract-path-page__control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.8125rem;
+  color: #aaa;
+  min-width: 200px;
+}
+
+.extract-path-page__reroll {
+  align-self: flex-end;
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #445;
+  background: #1a2030;
+  color: #ddd;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.extract-path-page__reroll:hover {
+  background: #232b40;
+}

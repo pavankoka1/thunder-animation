@@ -1,20 +1,17 @@
 import { elapsedSeconds } from "../utils/time.js";
 
 export function applyInnerUniforms(gl, u, cfg, frame) {
-  const { body, reveal, tMs, tex, texOffset, texScale } = frame;
+  const { body, reveal, tMs, radius } = frame;
   gl.uniform2f(u.u_res, body.size[0], body.size[1]);
   gl.uniform2f(u.u_bodyOffset, body.offset[0], body.offset[1]);
+  gl.uniform1f(u.u_radius, radius ?? 0);
   gl.uniform1f(u.u_time, elapsedSeconds(tMs) * cfg.timeScale);
 
-  // Bind the traced neural network texture to unit 0.
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.uniform1i(u.u_tex, 0);
-  gl.uniform2f(u.u_texOffset, texOffset[0], texOffset[1]);
-  gl.uniform2f(u.u_texScale, texScale[0], texScale[1]);
-  gl.uniform1f(u.u_lodSharp, cfg.lodSharp);
-  gl.uniform1f(u.u_lodBlur, cfg.lodBlur);
-  gl.uniform1f(u.u_deLump, cfg.deLump);
+  // Procedural Voronoi cellular-crack vein field (see shaders.js) — tuned
+  // from Python pixel analysis of reference.png / inner-energy.png.
+  gl.uniform2fv(u.u_crackScale, cfg.crackScale);
+  gl.uniform1f(u.u_crackWidth, cfg.crackWidth);
+  gl.uniform1f(u.u_junctionMul, cfg.junctionWidthMul);
   gl.uniform1f(u.u_boltLo, cfg.boltLo);
   gl.uniform1f(u.u_boltHi, cfg.boltHi);
   gl.uniform1f(u.u_nodeLo, cfg.nodeLo);

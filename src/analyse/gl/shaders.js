@@ -10,24 +10,23 @@ uniform vec2 u_res;
 uniform vec2 u_bodyOffset;
 uniform float u_time;
 
-// The path NETWORK now comes from the traced neural reference (u_tex): the
-// bolt/node/crisp fields are read from the real image so the paths are the
-// hub-and-spoke web we built. Everything DOWNSTREAM — the colour pipeline
-// (base+halo+core+crisp+node+cloud), the palette, the slow flowing warp and
-// the shimmer — is the ORIGINAL plasma treatment, unchanged, so the textures,
-// colours and movement match the old animation exactly.
-uniform sampler2D u_tex;
-uniform vec2 u_texOffset;   // cover-crop origin into the image (0..1)
-uniform vec2 u_texScale;    // cover-crop size into the image (0..1)
-// The path NETWORK is read the CLEAN way from two mipmap LODs — a sharp one
-// for the veins and a heavily-blurred one whose broad glow is subtracted to
-// de-lump the hub. Mipmap sampling is smooth (no grain, no procedural noise),
-// so the paths stay clean & connected.
-uniform float u_lodSharp;   // mipmap LOD for the vein signal (smooth veins)
-uniform float u_lodBlur;    // mipmap LOD for the broad glow (de-lump reference)
-uniform float u_deLump;     // subtract this * broad glow → de-lumps the hub
-uniform float u_boltLo, u_boltHi;   // vein glow curve (smooth)
-uniform float u_nodeLo, u_nodeSharp; // bright hub → star-burst node
+// The vein network is now a PROCEDURAL Voronoi/Worley cellular-crack field —
+// not a photo trace. Python analysis of reference.png + inner-energy.png
+// (skeletonised, distance-transformed) showed: ~20% vein coverage, median
+// stroke ~1-1.5 design px (up to ~3-6px at multi-cell junctions), and — most
+// importantly — FULL uniform coverage edge-to-edge with NO open gaps (the
+// prior hub-and-spoke tree, clipped to isolated burst radii, left large open
+// areas that don't exist in the reference). A cellular F2-F1 "crack" field
+// (classic Worley noise technique) reproduces this exactly: every point in
+// space is near a crack by construction, thickness naturally varies from
+// thin (typical edge) to thick (near a 3-cell junction), and cellScale=10x5
+// (matching the ORIGINAL warp's cell grid below) lines up almost exactly
+// with the measured coverage/thickness stats.
+uniform vec2 u_crackScale;   // Voronoi cell density (x, y)
+uniform float u_crackWidth;  // F2-F1 threshold — controls vein thickness/coverage
+uniform float u_junctionMul; // multiplier on crackWidth for the (F3-F1) node glow
+uniform float u_boltLo, u_boltHi;   // extra contrast shaping on the crack mask
+uniform float u_nodeLo, u_nodeSharp; // triple-junction → star-burst node
 uniform float u_crispLo, u_crispInt; // white-hot vein cores
 uniform float u_flow, u_flowFreq, u_flowAmt; // gentle outward pulse (emergence)
 uniform float u_warpSpeed, u_warpAmount; // flowing domain warp (movement)
@@ -36,9 +35,20 @@ uniform float u_nodeInt;
 uniform vec3 u_baseColor, u_haloColor, u_coreColor;
 uniform float u_baseInt, u_haloInt, u_coreInt, u_coreThresh;
 uniform float u_edgeR, u_edgeSoft;
+uniform float u_radius; // body corner radius (px, same space as u_res) — keeps the
+                         // plasma inside the rounded betspot, incl. the corners
 uniform float u_opacity;
 
+float sdRoundBox(vec2 p, vec2 b, float r){
+  vec2 q = abs(p) - (b - vec2(r));
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+}
+
 float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
+vec2 hash2(vec2 p){
+  vec2 q = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+  return fract(sin(q) * 43758.5453);
+}
 float vnoise(vec2 p){
   vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
   float a = hash(i), b = hash(i+vec2(1,0)), c = hash(i+vec2(0,1)), d = hash(i+vec2(1,1));
@@ -49,34 +59,59 @@ float fbm(vec2 p){
   for (int i = 0; i < 4; i++){ s += vnoise(p)*a; p *= 2.03; a *= 0.5; }
   return s;
 }
-float luma(vec3 c){ return max(max(c.r, c.g), c.b); }
+
+// Worley/Voronoi cellular noise: distances to the 1st/2nd/3rd nearest jittered
+// feature points (one per grid cell, 3x3 neighbourhood is always enough since
+// jitter stays within its own cell). F2-F1 traces the cell-edge "crack" web;
+// F3-F1 is small only near a 3-cell junction (natural thick/bright node).
+void worley3(vec2 p, out float f1, out float f2, out float f3){
+  vec2 ip = floor(p), fp = fract(p);
+  f1 = 8.0; f2 = 8.0; f3 = 8.0;
+  for (int y = -1; y <= 1; y++){
+    for (int x = -1; x <= 1; x++){
+      vec2 g = vec2(float(x), float(y));
+      vec2 o = hash2(ip + g);
+      float d = length(g + o - fp);
+      if (d < f1) { f3 = f2; f2 = f1; f1 = d; }
+      else if (d < f2) { f3 = f2; f2 = d; }
+      else if (d < f3) { f3 = d; }
+    }
+  }
+}
 
 void main(){
-  vec2 uv = (gl_FragCoord.xy - u_bodyOffset) / u_res;
-  float inBody = step(0.0, uv.x) * step(0.0, uv.y) * step(uv.x, 1.0) * step(uv.y, 1.0);
+  vec2 pix = gl_FragCoord.xy - u_bodyOffset;
+  vec2 uv = pix / u_res;
+  // Rounded-rect mask (matches the betspot body's own border radius) instead
+  // of a plain axis-aligned box, so the plasma — incl. the dense corner hub
+  // bursts — never pokes out past the body's rounded corners.
+  float sd = sdRoundBox(pix - u_res * 0.5, u_res * 0.5, u_radius);
+  float inBody = 1.0 - smoothstep(-1.0, 1.0, sd);
   float t = u_time;
 
   // Domain warp — the ORIGINAL Voronoi movement numbers (cellScale 10x5),
-  // now warping the SAMPLE coordinate of the baked path field. The two fbm
-  // octaves scroll with opposite time signs → a swirling flow with ~zero net
-  // drift, so the whole web breathes/morphs (never hovers, never strobes).
-  vec2 pcell = uv * vec2(10.0, 5.0);
+  // now warping the SAMPLE coordinate fed into the crack field itself. The
+  // two fbm octaves scroll with opposite time signs → a swirling flow with
+  // ~zero net drift, so the whole web breathes/morphs (never hovers, never
+  // strobes) — this is what turns dead-straight Voronoi edges into the
+  // reference's organic, wavy cracked-ice look.
+  vec2 pcell = uv * u_crackScale;
   vec2 wv = vec2(
     fbm(pcell * 0.9 + t * u_warpSpeed),
     fbm(pcell * 0.9 + 7.3 - t * u_warpSpeed)
   ) - 0.5;
-  vec2 suv = clamp(uv + (wv * u_warpAmount) / vec2(10.0, 5.0), 0.0, 1.0);
-  vec2 tuv = u_texOffset + suv * u_texScale;
+  vec2 suv = clamp(uv + (wv * u_warpAmount) / u_crackScale, 0.0, 1.0);
 
-  // Clean vein signal from mipmap LODs — smooth, no grain, no procedural
-  // noise. A sharp LOD gives the veins; a heavily-blurred LOD gives the broad
-  // glow, which we subtract so the bright centre reads as distinct radiating
-  // paths (de-lumped) instead of a solid blob. Veins survive because they're
-  // finer than the blurred glow → clean, connected paths.
-  float sharp = luma(textureLod(u_tex, tuv, u_lodSharp).rgb);
-  float glow = luma(textureLod(u_tex, tuv, u_lodBlur).rgb);
-  float detail = clamp(sharp - u_deLump * glow, 0.0, 1.0);
-  float bolt = smoothstep(u_boltLo, u_boltHi, detail);
+  // Cellular crack field: F2-F1 gives the vein network (uniform full-card
+  // coverage, thickness varies naturally); F3-F1 gives triple-junction glow.
+  float f1, f2, f3;
+  worley3(suv * u_crackScale, f1, f2, f3);
+  float edge = f2 - f1;
+  float crack = 1.0 - smoothstep(0.0, u_crackWidth, edge);
+  float bolt = smoothstep(u_boltLo, u_boltHi, crack);
+
+  float triple = f3 - f1;
+  float junction = 1.0 - smoothstep(0.0, u_crackWidth * u_junctionMul, triple);
 
   // Per-cell shimmer — ±10% only, phase varied per Voronoi cell (NOT keyed off
   // brightness, so it breathes rather than strobes) — exactly the original.
@@ -87,16 +122,19 @@ void main(){
   float wave = 0.5 + 0.5 * sin(rad * u_flowFreq - t * u_flow);
   bolt *= 1.0 + u_flowAmt * (wave * 2.0 - 1.0);
 
-  // Hub star-burst node from the bright centre.
-  float node = pow(smoothstep(u_nodeLo, 1.0, sharp), u_nodeSharp);
+  // Triple-junction star-burst node — the natural "thick convergence" spots.
+  float node = pow(smoothstep(u_nodeLo, 1.0, junction), u_nodeSharp);
   // White-hot cores on the strong veins.
-  float crisp = smoothstep(u_crispLo, 1.0, detail) * u_crispInt;
+  float crisp = smoothstep(u_crispLo, 1.0, crack) * u_crispInt;
 
   // Procedural cloud base texture — identical to the original plasma.
   float cloud = fbm(uv * u_cloudScale + t * u_warpSpeed * 0.7);
   cloud = mix(1.0, cloud, u_cloudAmount);
 
-  // ---- ORIGINAL colour pipeline (unchanged) ----
+  // ---- colour pipeline ----
+  // Void darkness comes from the CSS body showing through (screen blend) — keep
+  // the base subtle so gaps between veins read as dark blue, not a painted
+  // white/violet radial blob. Vein colours sampled from reference.png.
   vec3 base = u_baseColor * u_baseInt * (0.5 + cloud);
   vec3 halo = u_haloColor * bolt * u_haloInt;
   vec3 core = u_coreColor * u_coreInt * pow(clamp((bolt - u_coreThresh) / (1.0 - u_coreThresh), 0.0, 1.0), 2.0);
@@ -306,12 +344,9 @@ export const INNER_UNIFORM_NAMES = [
   "u_res",
   "u_bodyOffset",
   "u_time",
-  "u_tex",
-  "u_texOffset",
-  "u_texScale",
-  "u_lodSharp",
-  "u_lodBlur",
-  "u_deLump",
+  "u_crackScale",
+  "u_crackWidth",
+  "u_junctionMul",
   "u_boltLo",
   "u_boltHi",
   "u_nodeLo",
@@ -335,6 +370,7 @@ export const INNER_UNIFORM_NAMES = [
   "u_coreThresh",
   "u_edgeR",
   "u_edgeSoft",
+  "u_radius",
   "u_opacity",
 ];
 

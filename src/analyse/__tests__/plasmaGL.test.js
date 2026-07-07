@@ -17,10 +17,8 @@ describe("elapsedSeconds", () => {
 describe("PLASMA_CONFIG", () => {
   it("exposes tunable numeric keys", () => {
     for (const key of [
-      "texZoom",
-      "lodSharp",
-      "lodBlur",
-      "deLump",
+      "crackWidth",
+      "junctionWidthMul",
       "boltLo",
       "boltHi",
       "nodeLo",
@@ -34,6 +32,14 @@ describe("PLASMA_CONFIG", () => {
     ]) {
       expect(PLASMA_CONFIG).toHaveProperty(key);
       expect(typeof PLASMA_CONFIG[key]).toBe("number");
+    }
+  });
+
+  it("exposes the Voronoi cell-density pair driving the crack field", () => {
+    expect(PLASMA_CONFIG.crackScale).toHaveLength(2);
+    for (const c of PLASMA_CONFIG.crackScale) {
+      expect(typeof c).toBe("number");
+      expect(c).toBeGreaterThan(0);
     }
   });
 
