@@ -36,6 +36,22 @@ const DENSIFY_PX = 3; // resample vertex spacing so curves stay smooth
 const MIN_SEGMENTS = 20; // below this, use the synthetic fallback
 const BAKE_SS = 2; // bake supersample over the body canvas
 
+// The source photo is close to square (~1.25:1) but the body is a wide card
+// (~2.15:1); a strict cover-fit crops ~42% off the top+bottom to fill the
+// width, which throws away the source's corner hub clusters. Cap how far the
+// fit is allowed to zoom in one axis and make up the rest with a mild
+// anisotropic squash instead — the network is an organic fractal web, not a
+// recognisable shape, so a modest squeeze reads as denser, not "wrong".
+const MAX_COVER_STRETCH = 1.3;
+
+// A hub candidate is a near-white blob CENTRE in the source photo (distinct
+// from ordinary vein pixels, which are dimmer/cooler) — these are the actual
+// authored "neuron" nodes in the reference, not generic skeleton crossings
+// (per-junction dots were tried before and rejected as "scattered specks").
+const HUB_BRIGHT_THRESHOLD = 680; // r+g+b sum floor for a hub-blob core (near white)
+const HUB_MIN_PIXELS = 10; // drop noise specks
+const HUB_MAX_COUNT = 9; // cap extra hubs so it stays a handful of real nodes
+
 const BAKE_W = Math.round(BODY.width * SUPERSAMPLE * BAKE_SS); // 1168
 const BAKE_H = Math.round(BODY.height * SUPERSAMPLE * BAKE_SS); // 544
 const DIAG = Math.hypot(BAKE_W, BAKE_H);
@@ -63,6 +79,65 @@ function brightMask(data, w, h, thresh) {
   return mask;
 }
 
+/**
+ * Find the real hub-blob centres in the source photo: connected components of
+ * near-white pixels (flood fill), centroid + pixel count per component. Used
+ * to place MULTIPLE node glows matching the reference's distributed hubs,
+ * instead of a single synthetic centre.
+ */
+function findHubCandidates(data, w, h, thresh, minPixels) {
+  const mask = new Uint8Array(w * h);
+  for (let i = 0, p = 0; i < mask.length; i += 1, p += 4) {
+    if (data[p] + data[p + 1] + data[p + 2] >= thresh) mask[i] = 1;
+  }
+
+  const visited = new Uint8Array(w * h);
+  const stack = [];
+  const hubs = [];
+
+  for (let start = 0; start < mask.length; start += 1) {
+    if (!mask[start] || visited[start]) continue;
+    stack.length = 0;
+    stack.push(start);
+    visited[start] = 1;
+    let sumX = 0;
+    let sumY = 0;
+    let count = 0;
+
+    while (stack.length) {
+      const idx = stack.pop();
+      const x = idx % w;
+      const y = (idx / w) | 0;
+      sumX += x;
+      sumY += y;
+      count += 1;
+      if (x > 0 && mask[idx - 1] && !visited[idx - 1]) {
+        visited[idx - 1] = 1;
+        stack.push(idx - 1);
+      }
+      if (x < w - 1 && mask[idx + 1] && !visited[idx + 1]) {
+        visited[idx + 1] = 1;
+        stack.push(idx + 1);
+      }
+      if (y > 0 && mask[idx - w] && !visited[idx - w]) {
+        visited[idx - w] = 1;
+        stack.push(idx - w);
+      }
+      if (y < h - 1 && mask[idx + w] && !visited[idx + w]) {
+        visited[idx + w] = 1;
+        stack.push(idx + w);
+      }
+    }
+
+    if (count >= minPixels) {
+      hubs.push({ x: sumX / count, y: sumY / count, weight: count });
+    }
+  }
+
+  hubs.sort((a, b) => b.weight - a.weight);
+  return hubs;
+}
+
 /** Extract a connected graph of curved polylines from the image (source px). */
 async function extractGraph(img) {
   const iw = img.naturalWidth;
@@ -81,6 +156,7 @@ async function extractGraph(img) {
   // edges (NOT traceSkeletonPolylines, which cuts through junctions).
   const rawPaths = traceSkeletonPaths(skel, w, h, mapPoint, 3);
   const junctions = findJunctions(skel, w, h, mapPoint);
+  const hubCandidates = findHubCandidates(data, iw, ih, HUB_BRIGHT_THRESHOLD, HUB_MIN_PIXELS);
 
   let segs = pathsToSegments(rawPaths, 1, MIN_LEN_PX);
   segs = chainSegments(segs);
@@ -89,10 +165,15 @@ async function extractGraph(img) {
     points: densifySegmentPoints(s.points, DENSIFY_PX),
   }));
 
-  return { segs, junctions, iw, ih };
+  return { segs, junctions, hubCandidates, iw, ih };
 }
 
-/** Cover-fit mapping image-source px → bake px (keeps aspect, crops overflow). */
+/**
+ * Cover-fit mapping image-source px → bake px (keeps aspect, crops overflow),
+ * with the crop capped at MAX_COVER_STRETCH — beyond that we squash the
+ * overshoot axis anisotropically instead of cropping further, so distributed
+ * content near the source's edges (hub clusters) survives into the bake.
+ */
 function coverMapping(iw, ih) {
   const bodyAspect = BAKE_W / BAKE_H;
   const imgAspect = iw / ih;
@@ -101,9 +182,11 @@ function coverMapping(iw, ih) {
   if (imgAspect >= bodyAspect) {
     drawH = BAKE_H;
     drawW = BAKE_H * imgAspect;
+    drawW = Math.min(drawW, BAKE_W * MAX_COVER_STRETCH);
   } else {
     drawW = BAKE_W;
     drawH = BAKE_W / imgAspect;
+    drawH = Math.min(drawH, BAKE_H * MAX_COVER_STRETCH);
   }
   const offX = (BAKE_W - drawW) / 2;
   const offY = (BAKE_H - drawH) / 2;
@@ -333,13 +416,16 @@ function bakeToCanvas(segsBake, branchData, hubs) {
   for (const s of segsBake) strokePath(ctx, s.points, s.base ?? 2.8);
   for (const b of branchData.branches) strokePath(ctx, b.points, b.base);
 
-  // Bright hub node(s) only where paths genuinely converge (the central hub +
-  // any passed hubs). NO per-junction dots — those read as scattered bright
-  // specks on the paths. Natural line crossings brighten on their own, and the
-  // shader's `node` term makes the real convergence points glow.
+  // Bright hub node(s): the central synthetic hub plus the real bright-blob
+  // hubs extracted from the source photo (findHubCandidates) — NOT every
+  // skeleton junction, which read as scattered specks when tried before.
+  // Secondary hubs are drawn a little smaller so the centre stays the
+  // dominant focal point, matching the reference's one strong core + several
+  // dimmer distributed nodes.
   for (const h of hubs) {
-    hubBlob(ctx, h.x, h.y, 18);
-    hubBlob(ctx, h.x, h.y, 8);
+    const isSecondary = h.primary === false;
+    hubBlob(ctx, h.x, h.y, isSecondary ? 13 : 18);
+    hubBlob(ctx, h.x, h.y, isSecondary ? 5 : 8);
   }
 
   ctx.globalCompositeOperation = "source-over";
@@ -348,13 +434,25 @@ function bakeToCanvas(segsBake, branchData, hubs) {
 
 async function buildField(img) {
   let segsBake = null;
+  let extraHubs = [];
   try {
-    const { segs, iw, ih } = await extractGraph(img);
+    const { segs, iw, ih, hubCandidates } = await extractGraph(img);
     // eslint-disable-next-line no-console
     console.info(`[neural bake] extracted ${segs.length} connected path segments`);
     if (segs.length >= MIN_SEGMENTS) {
       const toBake = coverMapping(iw, ih);
       segsBake = segs.map((s) => ({ ...s, base: 2.8, points: s.points.map(toBake) }));
+
+      // Keep only hubs that survived the crop and aren't right on top of the
+      // central hub (already-sorted by weight, so this keeps the strongest).
+      const margin = 10;
+      extraHubs = hubCandidates
+        .map(toBake)
+        .filter(
+          (p) => p.x > margin && p.x < BAKE_W - margin && p.y > margin && p.y < BAKE_H - margin,
+        )
+        .filter((p) => Math.hypot(p.x - BAKE_W / 2, p.y - BAKE_H / 2) > DIAG * 0.08)
+        .slice(0, HUB_MAX_COUNT);
     }
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -375,7 +473,11 @@ async function buildField(img) {
   const seeded = [...segsBake, ...central.segs];
   const twigs = densifyBranches(seeded);
   const allSegs = [...seeded, ...twigs];
-  return bakeToCanvas(allSegs, branchData, [central.hub]);
+  const hubs = [
+    { x: central.hub.x, y: central.hub.y, primary: true },
+    ...extraHubs.map((h) => ({ x: h.x, y: h.y, primary: false })),
+  ];
+  return bakeToCanvas(allSegs, branchData, hubs);
 }
 
 let bakedPromise = null;
