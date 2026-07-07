@@ -35,7 +35,7 @@ export const PLASMA_CONFIG = {
   // The paths are strokes drawn once at load in src/analyse/gl/bakeNeuralField.js,
   // so these only apply on a full reload (not live shader tweaks). Defaults = 1.
   pathWidth: 0.65, // multiplier on vein/branch stroke THICKNESS (↑ = thicker paths)
-  branchDensity: 0.6, // multiplier on branch-twig COUNT (↓ = fewer paths / sparser)
+  branchDensity: 0.35, // multiplier on branch-twig COUNT (↓ = fewer paths / sparser)
 
   // ---- outward energy pulse (gentle; energy reads as flowing from the hub) ----
   flow: 1.0, // outward travel speed

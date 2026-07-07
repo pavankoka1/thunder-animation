@@ -42,15 +42,22 @@ const BAKE_SS = 2; // bake supersample over the body canvas
 // fit is allowed to zoom in one axis and make up the rest with a mild
 // anisotropic squash instead — the network is an organic fractal web, not a
 // recognisable shape, so a modest squeeze reads as denser, not "wrong".
-const MAX_COVER_STRETCH = 1.3;
+const MAX_COVER_STRETCH = 1.18;
 
 // A hub candidate is a near-white blob CENTRE in the source photo (distinct
 // from ordinary vein pixels, which are dimmer/cooler) — these are the actual
 // authored "neuron" nodes in the reference, not generic skeleton crossings
 // (per-junction dots were tried before and rejected as "scattered specks").
 const HUB_BRIGHT_THRESHOLD = 680; // r+g+b sum floor for a hub-blob core (near white)
-const HUB_MIN_PIXELS = 18; // drop noise specks (higher = only the real prominent blobs)
-const HUB_MAX_COUNT = 5; // cap extra hubs so it stays a handful of real nodes
+const HUB_MIN_PIXELS = 24; // drop noise specks (higher = only the real prominent blobs)
+const HUB_MAX_COUNT = 3; // cap extra hubs so it stays a handful of real nodes
+const HUB_MIN_SPACING = 0.16; // min gap between two hubs, as a fraction of DIAG — stops overlapping blob "clumps"
+
+// The reference mockup (reference.png) is mostly SMOOTH OPEN glow with a
+// handful of localised hub bursts + short spokes — NOT a fully-connected web
+// covering the whole card. Everything gets clipped to within this radius of
+// a hub centre (as a fraction of DIAG) so most of the card stays open.
+const HUB_BURST_RADIUS = 0.17;
 
 const BAKE_W = Math.round(BODY.width * SUPERSAMPLE * BAKE_SS); // 1168
 const BAKE_H = Math.round(BODY.height * SUPERSAMPLE * BAKE_SS); // 544
@@ -303,6 +310,38 @@ function strokePath(ctx, points, baseW) {
   }
 }
 
+/**
+ * Clip a polyline to the sub-runs that fall within `radius` of ANY hub centre,
+ * splitting where it exits/re-enters — this is what turns a fully-connected
+ * web into isolated hub bursts with open smooth glow in between, matching the
+ * reference mockup instead of covering the whole card in filaments.
+ */
+function clipToHubs(points, hubs, radius) {
+  const runs = [];
+  let current = [];
+  for (const p of points) {
+    const near = hubs.some((h) => Math.hypot(p.x - h.x, p.y - h.y) <= radius);
+    if (near) {
+      current.push(p);
+    } else {
+      if (current.length >= 2) runs.push(current);
+      current = [];
+    }
+  }
+  if (current.length >= 2) runs.push(current);
+  return runs;
+}
+
+function clipSegsToHubs(segs, hubs, radius) {
+  const out = [];
+  for (const s of segs) {
+    for (const run of clipToHubs(s.points, hubs, radius)) {
+      out.push({ ...s, points: run });
+    }
+  }
+  return out;
+}
+
 function hubBlob(ctx, x, y, r) {
   const g = ctx.createRadialGradient(x, y, 0, x, y, r);
   g.addColorStop(0, "rgba(255,255,255,0.95)");
@@ -377,7 +416,7 @@ function addCentralHub(segsBake) {
     .map((p) => ({ p, d: Math.hypot(p.x - hub.x, p.y - hub.y) }))
     .filter((o) => o.d > DIAG * 0.04 && o.d < DIAG * 0.42)
     .sort((a, b) => a.d - b.d)
-    .slice(0, 12);
+    .slice(0, 5);
   for (const { p } of near) {
     const len = Math.hypot(p.x - hub.x, p.y - hub.y);
     const pts = subdivideSegment(hub.x, hub.y, p.x, p.y, len * 0.16, len * 0.08, rng);
@@ -388,12 +427,12 @@ function addCentralHub(segsBake) {
   // (b) FILL the empty central patch: the image centre is a diffuse glow that
   // doesn't skeletonise into lines, so seed our own curved dendrites radiating
   // from the hub (varied length + strong curvature + jittered angle so it's a
-  // neural soma, not a clean starburst). These get twig-densified downstream to
-  // match the surrounding density.
-  const arms = 14;
+  // neural soma, not a clean starburst). Short — this is a burst, not a web
+  // reaching across the whole card (see HUB_BURST_RADIUS/clipSegsToHubs).
+  const arms = 7;
   for (let k = 0; k < arms; k += 1) {
     const a = (k / arms) * Math.PI * 2 + randRange(rng, -0.4, 0.4);
-    const len = randRange(rng, 0.08, 0.3) * DIAG;
+    const len = randRange(rng, 0.06, 0.16) * DIAG;
     const tip = { x: hub.x + Math.cos(a) * len, y: hub.y + Math.sin(a) * len };
     const pts = subdivideSegment(hub.x, hub.y, tip.x, tip.y, len * 0.32, len * 0.07, rng);
     pts[0] = { x: hub.x, y: hub.y };
@@ -424,8 +463,8 @@ function bakeToCanvas(segsBake, branchData, hubs) {
   // dimmer distributed nodes.
   for (const h of hubs) {
     const isSecondary = h.primary === false;
-    hubBlob(ctx, h.x, h.y, isSecondary ? 13 : 18);
-    hubBlob(ctx, h.x, h.y, isSecondary ? 5 : 8);
+    hubBlob(ctx, h.x, h.y, isSecondary ? 8 : 13);
+    hubBlob(ctx, h.x, h.y, isSecondary ? 3 : 6);
   }
 
   ctx.globalCompositeOperation = "source-over";
@@ -445,14 +484,23 @@ async function buildField(img) {
 
       // Keep only hubs that survived the crop and aren't right on top of the
       // central hub (already-sorted by weight, so this keeps the strongest).
+      // Greedily reject candidates too close to an already-accepted hub —
+      // without this, two nearby blobs from the same physical cluster both
+      // qualify and their glows overlap into one big soft "clump".
       const margin = 10;
-      extraHubs = hubCandidates
+      const candidates = hubCandidates
         .map(toBake)
         .filter(
           (p) => p.x > margin && p.x < BAKE_W - margin && p.y > margin && p.y < BAKE_H - margin,
         )
-        .filter((p) => Math.hypot(p.x - BAKE_W / 2, p.y - BAKE_H / 2) > DIAG * 0.08)
-        .slice(0, HUB_MAX_COUNT);
+        .filter((p) => Math.hypot(p.x - BAKE_W / 2, p.y - BAKE_H / 2) > DIAG * 0.08);
+      for (const p of candidates) {
+        if (extraHubs.length >= HUB_MAX_COUNT) break;
+        const tooClose = extraHubs.some(
+          (h) => Math.hypot(h.x - p.x, h.y - p.y) < DIAG * HUB_MIN_SPACING,
+        );
+        if (!tooClose) extraHubs.push(p);
+      }
     }
   } catch (err) {
     // eslint-disable-next-line no-console
@@ -477,7 +525,10 @@ async function buildField(img) {
     { x: central.hub.x, y: central.hub.y, primary: true },
     ...extraHubs.map((h) => ({ x: h.x, y: h.y, primary: false })),
   ];
-  return bakeToCanvas(allSegs, branchData, hubs);
+  const radius = DIAG * HUB_BURST_RADIUS;
+  const clippedSegs = clipSegsToHubs(allSegs, hubs, radius);
+  const clippedBranches = clipSegsToHubs(branchData.branches, hubs, radius);
+  return bakeToCanvas(clippedSegs, { ...branchData, branches: clippedBranches }, hubs);
 }
 
 let bakedPromise = null;
