@@ -50,8 +50,8 @@ const MAX_COVER_STRETCH = 1.18;
 // (per-junction dots were tried before and rejected as "scattered specks").
 const HUB_BRIGHT_THRESHOLD = 680; // r+g+b sum floor for a hub-blob core (near white)
 const HUB_MIN_PIXELS = 24; // drop noise specks (higher = only the real prominent blobs)
-const HUB_MAX_COUNT = 4; // cap extra hubs so it stays a handful of real nodes
-const HUB_MIN_SPACING = 0.16; // min gap between two hubs, as a fraction of DIAG — stops overlapping blob "clumps"
+const HUB_MAX_COUNT = 7; // cap extra hubs so it stays a handful of real nodes — enough to also cover the mid-card gaps between corners and centre, not just the 4 corners
+const HUB_MIN_SPACING = 0.13; // min gap between two hubs, as a fraction of DIAG — stops overlapping blob "clumps"
 const HUB_EDGE_MARGIN = 10; // keep hub centres this far inside the canvas edge
 // The source photo's 4 corner clusters are its 2nd-5th brightest features
 // (right after the centre) — but coverMapping's crop maps them just OUTSIDE
@@ -366,6 +366,39 @@ function clipSegsToHubs(segs, hubs, radius) {
   return out;
 }
 
+/**
+ * Thin curved threads connecting each hub to its nearest neighbour (deduped,
+ * so this is a sparse spanning tree, not every pair) — otherwise hubs read as
+ * a constellation of disconnected dots. These deliberately skip
+ * clipSegsToHubs (they're SUPPOSED to cross the open space between hubs).
+ */
+function connectHubs(hubs, seed) {
+  const rng = createRng(seed);
+  const segs = [];
+  const connected = new Set();
+  for (let i = 0; i < hubs.length; i += 1) {
+    let best = -1;
+    let bestD = Infinity;
+    for (let j = 0; j < hubs.length; j += 1) {
+      if (i === j) continue;
+      const d = Math.hypot(hubs[i].x - hubs[j].x, hubs[i].y - hubs[j].y);
+      if (d < bestD) {
+        bestD = d;
+        best = j;
+      }
+    }
+    if (best < 0) continue;
+    const key = i < best ? `${i}-${best}` : `${best}-${i}`;
+    if (connected.has(key)) continue;
+    connected.add(key);
+    const a = hubs[i];
+    const b = hubs[best];
+    const pts = subdivideSegment(a.x, a.y, b.x, b.y, bestD * 0.12, bestD * 0.06, rng);
+    segs.push({ points: pts, base: 1.5 });
+  }
+  return segs;
+}
+
 function hubBlob(ctx, x, y, r) {
   const g = ctx.createRadialGradient(x, y, 0, x, y, r);
   g.addColorStop(0, "rgba(255,255,255,0.95)");
@@ -556,7 +589,8 @@ async function buildField(img) {
   const radius = DIAG * HUB_BURST_RADIUS;
   const clippedSegs = clipSegsToHubs(allSegs, hubs, radius);
   const clippedBranches = clipSegsToHubs(branchData.branches, hubs, radius);
-  return bakeToCanvas(clippedSegs, { ...branchData, branches: clippedBranches }, hubs);
+  const bridges = connectHubs(hubs, 0x6b12de);
+  return bakeToCanvas([...clippedSegs, ...bridges], { ...branchData, branches: clippedBranches }, hubs);
 }
 
 let bakedPromise = null;
