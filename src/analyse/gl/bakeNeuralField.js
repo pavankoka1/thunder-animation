@@ -49,8 +49,8 @@ const MAX_COVER_STRETCH = 1.3;
 // authored "neuron" nodes in the reference, not generic skeleton crossings
 // (per-junction dots were tried before and rejected as "scattered specks").
 const HUB_BRIGHT_THRESHOLD = 680; // r+g+b sum floor for a hub-blob core (near white)
-const HUB_MIN_PIXELS = 10; // drop noise specks
-const HUB_MAX_COUNT = 9; // cap extra hubs so it stays a handful of real nodes
+const HUB_MIN_PIXELS = 18; // drop noise specks (higher = only the real prominent blobs)
+const HUB_MAX_COUNT = 5; // cap extra hubs so it stays a handful of real nodes
 
 const BAKE_W = Math.round(BODY.width * SUPERSAMPLE * BAKE_SS); // 1168
 const BAKE_H = Math.round(BODY.height * SUPERSAMPLE * BAKE_SS); // 544
