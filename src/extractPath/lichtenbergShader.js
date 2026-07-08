@@ -302,10 +302,17 @@ void main() {
   // Colour is violet, leaning toward the magenta edge tint near the border.
   float gapMask = smoothstep(3.0, 12.0, nearestD);
   vec3 violetCol = mix(vec3(0.52, 0.30, 0.95), u_edgeColor, edgeMixT * 0.6);
-  float vt = u_time * 0.12;                                // slow morph so it's alive
-  vec2 vp = pix / 26.0;                                    // cell density -> dense veins
-  vec2 warp = vec2(sin(vp.y * 1.7 + vt), cos(vp.x * 1.5 - vt)) * 0.35; // organic warp
-  float crack = worleyCrack(vp + warp);
+  // Move the plasma IN SYNC with the traced veins: reuse the EXACT same flow
+  // field readPoint() displaces the veins by (same 0.85 time-rate, 0.032
+  // spatial frequency, same u_swayAmt from the Movement slider), warping the
+  // Worley sample coordinate. So the whole field — traced veins + violet fill —
+  // drifts and morphs together as one animation, and both freeze together under
+  // reduced motion (swayAmt 0).
+  float ft = u_time * 0.85;
+  vec2 fp = pix * 0.032;
+  vec2 veinFlow = vec2(sin(fp.y + ft), cos(fp.x - ft * 0.9));
+  vec2 vp = (pix + veinFlow * u_swayAmt) / 26.0;           // flow-warped cell coords
+  float crack = worleyCrack(vp);
   float vein = 1.0 - smoothstep(0.0, 0.07, crack);         // THIN cell-edge veins
   float veinCore = 1.0 - smoothstep(0.0, 0.025, crack);    // brighter hairline centre
   // Small violet TRANSITION sparks through the plasma (like the older near-vein
@@ -537,10 +544,17 @@ void main() {
   // Colour is violet, leaning toward the magenta edge tint near the border.
   float gapMask = smoothstep(3.0, 12.0, nearestD);
   vec3 violetCol = mix(vec3(0.52, 0.30, 0.95), u_edgeColor, edgeMixT * 0.6);
-  float vt = u_time * 0.12;                                // slow morph so it's alive
-  vec2 vp = pix / 26.0;                                    // cell density -> dense veins
-  vec2 warp = vec2(sin(vp.y * 1.7 + vt), cos(vp.x * 1.5 - vt)) * 0.35; // organic warp
-  float crack = worleyCrack(vp + warp);
+  // Move the plasma IN SYNC with the traced veins: reuse the EXACT same flow
+  // field readPoint() displaces the veins by (same 0.85 time-rate, 0.032
+  // spatial frequency, same u_swayAmt from the Movement slider), warping the
+  // Worley sample coordinate. So the whole field — traced veins + violet fill —
+  // drifts and morphs together as one animation, and both freeze together under
+  // reduced motion (swayAmt 0).
+  float ft = u_time * 0.85;
+  vec2 fp = pix * 0.032;
+  vec2 veinFlow = vec2(sin(fp.y + ft), cos(fp.x - ft * 0.9));
+  vec2 vp = (pix + veinFlow * u_swayAmt) / 26.0;           // flow-warped cell coords
+  float crack = worleyCrack(vp);
   float vein = 1.0 - smoothstep(0.0, 0.07, crack);         // THIN cell-edge veins
   float veinCore = 1.0 - smoothstep(0.0, 0.025, crack);    // brighter hairline centre
   // Small violet TRANSITION sparks through the plasma (like the older near-vein
