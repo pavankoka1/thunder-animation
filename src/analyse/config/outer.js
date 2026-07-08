@@ -40,9 +40,9 @@ export const OUTER_CONFIG = {
   // hot layer) — no outer mid-colour halo blended in further out.
   // Keep lumpWidth small vs the slot spacing (1/lumpCount) so neighbours stay
   // distinct lumps; lumpSoft must stay > 0 or the shell edge goes hard/spiky.
-  lumpCount: 30, // number of lumps around the perimeter (density)
-  lumpAmount: 10.0, // max outward reach (px) of a unit-height lump
-  lumpWidth: 0.009, // half-width of each lump in perimeter fraction (s units)
+  lumpCount: 16, // number of lumps around the perimeter (density)
+  lumpAmount: 12.0, // max outward reach (px) of a unit-height lump
+  lumpWidth: 0.01, // half-width of each lump in perimeter fraction (s units)
   lumpSoft: 8, // softness (px) of the shell's outer falloff (>0)
   lumpDrift: 0.03, // drift speed of the whole crown (loops/sec)
   lumpBreath: 5, // breathing angular speed (rad/sec) of lump heights

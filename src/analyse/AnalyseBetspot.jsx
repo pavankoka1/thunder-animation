@@ -9,8 +9,8 @@ import {
   THEMES,
   TOP_BAR,
 } from "./config/index.js";
-import { usePlasmaLoop } from "./hooks/usePlasmaLoop.js";
-import { usePlasmaRenderer } from "./hooks/usePlasmaRenderer.js";
+import { useLichtenbergLoop } from "./hooks/useLichtenbergLoop.js";
+import { useLichtenbergRenderer } from "./hooks/useLichtenbergRenderer.js";
 import { useReducedMotion } from "./hooks/useReducedMotion.js";
 import { layerStyle } from "./utils/layout.js";
 
@@ -25,13 +25,15 @@ export default function AnalyseBetspot({
   const [revealed, setRevealed] = useState(false);
   const reducedMotion = useReducedMotion();
 
-  const { rendererRef, ready } = usePlasmaRenderer(canvasRef, {
-    innerConfig,
-    outerConfig,
-  });
+  // Inner plasma is now the extracted-Lichtenberg energy (shared with
+  // /extract-path via lichtenbergPreset.js). innerConfig is intentionally
+  // unused — every betspot shows the same plasma at the current defaults; the
+  // per-theme identity comes from the CSS body + the outer border colour.
+  const { rendererRef, ready } = useLichtenbergRenderer(canvasRef);
 
-  usePlasmaLoop({
+  useLichtenbergLoop({
     rendererRef,
+    outerConfig,
     active: revealed && ready,
     reducedMotion,
   });

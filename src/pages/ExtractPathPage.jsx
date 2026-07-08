@@ -41,6 +41,11 @@ export default function ExtractPathPage() {
   const [edgeMix, setEdgeMix] = useState(1.0);
   const [intensity, setIntensity] = useState(0.5);
   const [cornerDensity, setCornerDensity] = useState(1);
+  // Flow-field sway amplitude (body px). Peak per-axis displacement is
+  // movement * taper max 1.6, which must stay under spatialGrid.js SWAY_PAD
+  // (18) or moved segments drift out of their registered cells and flicker —
+  // hence the slider max of 11 (11 * 1.6 = 17.6 < 18).
+  const [movement, setMovement] = useState(20);
   const reducedMotion = useReducedMotion();
 
   // Read every animation frame by the paint loop below — a ref (not state)
@@ -160,13 +165,13 @@ export default function ExtractPathPage() {
       edgePow: 1.0,
       edgeMix,
       // Motion amplitude (body px) for the flow-field sway — see readPoint in
-      // lichtenbergShader.js. Raised so the drift is clearly visible; peak
-      // displacement (swayAmt 8.5 * taper max 1.6 ≈ 13.6) stays under the grid's
-      // SWAY_PAD (18). The flow field also sweeps faster now (u_time * 0.85).
-      // 0 under reduced motion (set by the paint loop).
-      swayAmt: 8.5,
+      // lichtenbergShader.js. Driven by the Movement slider; peak per-axis
+      // displacement (movement * taper max 1.6) stays under the grid's
+      // SWAY_PAD (18) because the slider is capped at 11. The flow field also
+      // sweeps at u_time * 0.85. 0 under reduced motion (set by the paint loop).
+      swayAmt: movement,
     };
-  }, [thickness, edgeMix, intensity]);
+  }, [thickness, edgeMix, intensity, movement]);
 
   // Ambient motion loop: paintLichtenberg now re-runs every frame (not just
   // on param change) because u_time/u_swayAmt displace each path's actual
@@ -356,6 +361,17 @@ export default function ExtractPathPage() {
             step="0.05"
             value={cornerDensity}
             onChange={(e) => setCornerDensity(Number(e.target.value))}
+          />
+        </label>
+        <label className="extract-path-page__control">
+          Movement {movement.toFixed(1)}
+          <input
+            type="range"
+            min="0"
+            max="11"
+            step="0.5"
+            value={movement}
+            onChange={(e) => setMovement(Number(e.target.value))}
           />
         </label>
       </div>
