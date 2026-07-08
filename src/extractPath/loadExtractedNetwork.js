@@ -18,6 +18,7 @@
  * traced from the photo, not authored/randomised.
  */
 import extracted from "./extracted-network.json";
+import { generateCornerPaths } from "./cornerPaths.js";
 
 // The source photo (~1.25:1) is far more square than the wide betspot body
 // (~2.15:1); a strict cover-fit crop would crop ~42% off the top+bottom,
@@ -29,10 +30,11 @@ const MAX_COVER_STRETCH = 1.18;
  * @param {number} bodyW body width in the SAME pixel space as the renderer's
  *   layout.body.size (i.e. already multiplied by SUPERSAMPLE).
  * @param {number} bodyH
- * @param {{ widthScale?: number }} [options]
+ * @param {{ widthScale?: number, cornerDensity?: number,
+ *   cornerRadius?: number }} [options]
  */
 export function loadExtractedNetwork(bodyW, bodyH, options = {}) {
-  const { widthScale = 1 } = options;
+  const { widthScale = 1, cornerDensity = 1, cornerRadius } = options;
   const { imgWidth: iw, imgHeight: ih, paths: rawPaths } = extracted;
 
   const bodyAspect = bodyW / bodyH;
@@ -85,5 +87,17 @@ export function loadExtractedNetwork(bodyW, bodyH, options = {}) {
   };
   const paths = mapped.filter((pts) => pts.length >= 2 && arcLen(pts) >= MIN_PATH_LEN);
 
-  return { paths, pointCounts: paths.map((p) => p.length) };
+  // Augment the sparse body corners with fractal dendritic bursts (see
+  // cornerPaths.js) so all four corners read as densely as reference.png's
+  // corner hubs. widthScale is passed through so they track the same Width-
+  // scale slider as the traced filaments.
+  const cornerPaths = generateCornerPaths(bodyW, bodyH, {
+    density: cornerDensity,
+    widthScale,
+    cornerRadius,
+  });
+
+  const allPaths = paths.concat(cornerPaths);
+
+  return { paths: allPaths, pointCounts: allPaths.map((p) => p.length) };
 }

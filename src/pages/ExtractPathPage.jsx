@@ -40,6 +40,7 @@ export default function ExtractPathPage() {
   const [centerBoost, setCenterBoost] = useState(1.15);
   const [edgeMix, setEdgeMix] = useState(1.0);
   const [intensity, setIntensity] = useState(0.5);
+  const [cornerDensity, setCornerDensity] = useState(1);
   const reducedMotion = useReducedMotion();
 
   // Read every animation frame by the paint loop below — a ref (not state)
@@ -87,6 +88,8 @@ export default function ExtractPathPage() {
       renderer.layout.body.size[1],
       {
         widthScale,
+        cornerDensity,
+        cornerRadius: renderer.layout.rect.radius,
       }
     );
     // The photo's dominant hub really is thicker than its edge/corner
@@ -108,7 +111,7 @@ export default function ExtractPathPage() {
       }
     }
     setNetwork(renderer, network);
-  }, [ready, widthScale, centerBoost]);
+  }, [ready, widthScale, centerBoost, cornerDensity]);
 
   // Style params the paint loop reads each frame — kept in a ref (see above)
   // rather than passed as effect deps, so changing a slider doesn't restart
@@ -342,6 +345,17 @@ export default function ExtractPathPage() {
             step="0.05"
             value={intensity}
             onChange={(e) => setIntensity(Number(e.target.value))}
+          />
+        </label>
+        <label className="extract-path-page__control">
+          Corner density {cornerDensity.toFixed(2)}
+          <input
+            type="range"
+            min="0"
+            max="3"
+            step="0.05"
+            value={cornerDensity}
+            onChange={(e) => setCornerDensity(Number(e.target.value))}
           />
         </label>
       </div>
