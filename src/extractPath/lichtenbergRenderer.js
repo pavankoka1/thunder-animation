@@ -203,6 +203,7 @@ export function paintLichtenberg(renderer, style = {}) {
     edgeMix = 1.0,
     ambientColor = [0.45, 0.75, 0.95],
     ambientAlpha = 0.12,
+    plasmaBright = 1.0,
   } = style;
 
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -249,6 +250,7 @@ export function paintLichtenberg(renderer, style = {}) {
   gl.uniform1f(u.u_edgeMix, edgeMix);
   gl.uniform3fv(u.u_ambientColor, ambientColor);
   gl.uniform1f(u.u_ambientAlpha, ambientAlpha);
+  gl.uniform1f(u.u_plasmaBright, plasmaBright);
 
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 }

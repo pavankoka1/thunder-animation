@@ -96,8 +96,29 @@ uniform float u_edgeStart, u_edgePow, u_edgeMix;
 // canvas near the corners (mostly open space) to ever read as violet.
 uniform vec3 u_ambientColor;
 uniform float u_ambientAlpha;
+uniform float u_plasmaBright; // brightness of the violet gap-fill plasma (slider)
 
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+
+// Worley/Voronoi "crack" field for the violet GAP-FILL veins (same technique as
+// /analyse's inner plasma): F2-F1 traces thin cell-EDGE lines, so it fills the
+// open spaces with a dense, thin, branching vein network — not round dots.
+vec2 hash2(vec2 p) {
+  vec2 q = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+  return fract(sin(q) * 43758.5453);
+}
+float worleyCrack(vec2 p) {
+  vec2 ip = floor(p), fp = fract(p);
+  float f1 = 8.0, f2 = 8.0;
+  for (int y = -1; y <= 1; y++) {
+    for (int x = -1; x <= 1; x++) {
+      vec2 g = vec2(float(x), float(y));
+      float d = length(g + hash2(ip + g) - fp);
+      if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) { f2 = d; }
+    }
+  }
+  return f2 - f1;
+}
 
 float sdRoundBox(vec2 p, vec2 b, float r) {
   vec2 q = abs(p) - (b - vec2(r));
@@ -210,10 +231,12 @@ void main() {
   ${SUB_DECL_ES3}
 
   vec3 col = vec3(0.0);
+  float nearestD = 1e9;
   for (int s = 0; s < ${NSUB}; s++) {
     vec2 samplePix = pix + offsets[s] - vec2(0.5);
     float bestD, bestW;
     findNearest(samplePix, bestD, bestW);
+    nearestD = min(nearestD, bestD);
 
     // CORE uses analytical stroke COVERAGE (like SDF vector-line rendering)
     // instead of a point-sampled Gaussian: a Gaussian only reaches full
@@ -249,10 +272,49 @@ void main() {
     float shimmer = 0.82 + 0.18 * sin(u_time * 2.0 + samplePix.x * 0.04 + samplePix.y * 0.06);
     float hub = smoothstep(3.5, 8.0, bestW);
     float hubTw = 0.5 + 0.5 * sin(u_time * 2.7 + bestW * 1.5);
+
+    // FINE SPECKLE grain hugging the veins. reference.png carries small (~1-3px)
+    // bright dots clustered right next to every filament — Python high-pass of
+    // the plasma measured ~76% of specks within 3px of a vein (vs 34% area), so
+    // they cling to the paths rather than filling the gaps. A per-cell hash
+    // picks a sparse set of points; each twinkles on its own phase; a
+    // exp(-bestD^2) gate keeps them near the veins. Position/width based only
+    // (never along-path) so it can't band into thorns. This is the "noise
+    // particles" that make the field read as live energy, not clean vectors.
+    vec2 scell = floor(samplePix / 2.2);          // ~1-2px speck cells (backing px)
+    float sh = hash(scell * 1.7 + 11.3);
+    float twk = 0.3 + 0.7 * sin(u_time * 5.0 + sh * 61.7); // per-cell twinkle
+    float speck = smoothstep(0.9, 1.0, sh) * max(twk, 0.0); // sparse: top ~10% cells
+    float speckNear = exp(-(bestD * bestD) / (2.0 * 3.5 * 3.5)); // hug within ~3.5px
     col += (outerColorAt * outer + glowColorAt * glow + coreColorAt * core) * shimmer +
-           vec3(0.92, 0.97, 1.0) * core * hub * hubTw * 0.7;
+           vec3(0.92, 0.97, 1.0) * core * hub * hubTw * 0.7 +
+           vec3(0.88, 0.96, 1.0) * speck * speckNear * 0.6;
   }
   col *= ${SUB_INV};
+
+  // VIOLET GAP PARTICLES — fill the open spaces BETWEEN the veins so the body
+  // reads as a full energy FIELD (reference.png is filled edge-to-edge, cyan on
+  // the veins drifting to violet in the gaps and at the border), not sparse
+  // lines on blue. gapMask is the INVERSE of vein-proximity (~0 on/near a vein,
+  // ~1 out in the gaps). Two scales give "noise & particles": sparse bright
+  // twinkling particles + a finer, denser violet grain that fills the field.
+  // Computed ONCE per fragment (a fill texture needs no supersampling).
+  // Colour is violet, leaning toward the magenta edge tint near the border.
+  float gapMask = smoothstep(3.0, 12.0, nearestD);
+  vec3 violetCol = mix(vec3(0.52, 0.30, 0.95), u_edgeColor, edgeMixT * 0.6);
+  float vt = u_time * 0.12;                                // slow morph so it's alive
+  vec2 vp = pix / 26.0;                                    // cell density -> dense veins
+  vec2 warp = vec2(sin(vp.y * 1.7 + vt), cos(vp.x * 1.5 - vt)) * 0.35; // organic warp
+  float crack = worleyCrack(vp + warp);
+  float vein = 1.0 - smoothstep(0.0, 0.07, crack);         // THIN cell-edge veins
+  float veinCore = 1.0 - smoothstep(0.0, 0.025, crack);    // brighter hairline centre
+  // Small violet TRANSITION sparks through the plasma (like the older near-vein
+  // sparks, but violet and in the fill): a sparse per-cell hash that fades fully
+  // in and out over time — the twinkle "transition".
+  vec2 spc = floor(pix / 3.2);
+  float sphv = hash(spc * 2.9 + 7.3);
+  float sparkV = smoothstep(0.93, 1.0, sphv) * max(0.0, sin(u_time * 4.0 + sphv * 55.0));
+  col += violetCol * gapMask * (vein * 0.5 + veinCore * 0.55 + sparkV * 1.3) * u_plasmaBright;
 
   // Ambient fill uses the SAME radial mix as the veins, so the violet edge
   // reads clearly even in the open space between branches (most of the
@@ -311,8 +373,29 @@ uniform vec3 u_edgeColor;
 uniform float u_edgeStart, u_edgePow, u_edgeMix;
 uniform vec3 u_ambientColor;
 uniform float u_ambientAlpha;
+uniform float u_plasmaBright; // brightness of the violet gap-fill plasma (slider)
 
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+
+// Worley/Voronoi "crack" field for the violet GAP-FILL veins (same technique as
+// /analyse's inner plasma): F2-F1 traces thin cell-EDGE lines, so it fills the
+// open spaces with a dense, thin, branching vein network — not round dots.
+vec2 hash2(vec2 p) {
+  vec2 q = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+  return fract(sin(q) * 43758.5453);
+}
+float worleyCrack(vec2 p) {
+  vec2 ip = floor(p), fp = fract(p);
+  float f1 = 8.0, f2 = 8.0;
+  for (int y = -1; y <= 1; y++) {
+    for (int x = -1; x <= 1; x++) {
+      vec2 g = vec2(float(x), float(y));
+      float d = length(g + hash2(ip + g) - fp);
+      if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) { f2 = d; }
+    }
+  }
+  return f2 - f1;
+}
 
 float sdRoundBox(vec2 p, vec2 b, float r) {
   vec2 q = abs(p) - (b - vec2(r));
@@ -397,10 +480,12 @@ void main() {
   ${SUB_DECL_ES1}
 
   vec3 col = vec3(0.0);
+  float nearestD = 1e9;
   for (int s = 0; s < ${NSUB}; s++) {
     vec2 samplePix = pix + offsets[s] - vec2(0.5);
     float bestD, bestW;
     findNearest(samplePix, bestD, bestW);
+    nearestD = min(nearestD, bestD);
 
     float coreHalfW = max(0.4, bestW * u_coreSigmaMul);
     float core = (1.0 - smoothstep(coreHalfW - 0.5, coreHalfW + 0.5, bestD)) * u_coreAlpha;
@@ -422,10 +507,49 @@ void main() {
     float shimmer = 0.82 + 0.18 * sin(u_time * 2.0 + samplePix.x * 0.04 + samplePix.y * 0.06);
     float hub = smoothstep(3.5, 8.0, bestW);
     float hubTw = 0.5 + 0.5 * sin(u_time * 2.7 + bestW * 1.5);
+
+    // FINE SPECKLE grain hugging the veins. reference.png carries small (~1-3px)
+    // bright dots clustered right next to every filament — Python high-pass of
+    // the plasma measured ~76% of specks within 3px of a vein (vs 34% area), so
+    // they cling to the paths rather than filling the gaps. A per-cell hash
+    // picks a sparse set of points; each twinkles on its own phase; a
+    // exp(-bestD^2) gate keeps them near the veins. Position/width based only
+    // (never along-path) so it can't band into thorns. This is the "noise
+    // particles" that make the field read as live energy, not clean vectors.
+    vec2 scell = floor(samplePix / 2.2);          // ~1-2px speck cells (backing px)
+    float sh = hash(scell * 1.7 + 11.3);
+    float twk = 0.3 + 0.7 * sin(u_time * 5.0 + sh * 61.7); // per-cell twinkle
+    float speck = smoothstep(0.9, 1.0, sh) * max(twk, 0.0); // sparse: top ~10% cells
+    float speckNear = exp(-(bestD * bestD) / (2.0 * 3.5 * 3.5)); // hug within ~3.5px
     col += (outerColorAt * outer + glowColorAt * glow + coreColorAt * core) * shimmer +
-           vec3(0.92, 0.97, 1.0) * core * hub * hubTw * 0.7;
+           vec3(0.92, 0.97, 1.0) * core * hub * hubTw * 0.7 +
+           vec3(0.88, 0.96, 1.0) * speck * speckNear * 0.6;
   }
   col *= ${SUB_INV};
+
+  // VIOLET GAP PARTICLES — fill the open spaces BETWEEN the veins so the body
+  // reads as a full energy FIELD (reference.png is filled edge-to-edge, cyan on
+  // the veins drifting to violet in the gaps and at the border), not sparse
+  // lines on blue. gapMask is the INVERSE of vein-proximity (~0 on/near a vein,
+  // ~1 out in the gaps). Two scales give "noise & particles": sparse bright
+  // twinkling particles + a finer, denser violet grain that fills the field.
+  // Computed ONCE per fragment (a fill texture needs no supersampling).
+  // Colour is violet, leaning toward the magenta edge tint near the border.
+  float gapMask = smoothstep(3.0, 12.0, nearestD);
+  vec3 violetCol = mix(vec3(0.52, 0.30, 0.95), u_edgeColor, edgeMixT * 0.6);
+  float vt = u_time * 0.12;                                // slow morph so it's alive
+  vec2 vp = pix / 26.0;                                    // cell density -> dense veins
+  vec2 warp = vec2(sin(vp.y * 1.7 + vt), cos(vp.x * 1.5 - vt)) * 0.35; // organic warp
+  float crack = worleyCrack(vp + warp);
+  float vein = 1.0 - smoothstep(0.0, 0.07, crack);         // THIN cell-edge veins
+  float veinCore = 1.0 - smoothstep(0.0, 0.025, crack);    // brighter hairline centre
+  // Small violet TRANSITION sparks through the plasma (like the older near-vein
+  // sparks, but violet and in the fill): a sparse per-cell hash that fades fully
+  // in and out over time — the twinkle "transition".
+  vec2 spc = floor(pix / 3.2);
+  float sphv = hash(spc * 2.9 + 7.3);
+  float sparkV = smoothstep(0.93, 1.0, sphv) * max(0.0, sin(u_time * 4.0 + sphv * 55.0));
+  col += violetCol * gapMask * (vein * 0.5 + veinCore * 0.55 + sparkV * 1.3) * u_plasmaBright;
 
   vec3 ambientColorAt = mix(u_ambientColor, u_edgeColor, edgeMixT);
   col += ambientColorAt * u_ambientAlpha * (1.0 + edgeMixT * 7.0);
@@ -463,4 +587,5 @@ export const UNIFORM_NAMES = [
   "u_edgeMix",
   "u_ambientColor",
   "u_ambientAlpha",
+  "u_plasmaBright",
 ];

@@ -46,6 +46,7 @@ export default function ExtractPathPage() {
   // (18) or moved segments drift out of their registered cells and flicker —
   // hence the slider max of 11 (11 * 1.6 = 17.6 < 18).
   const [movement, setMovement] = useState(20);
+  const [plasmaBright, setPlasmaBright] = useState(1.0);
   const reducedMotion = useReducedMotion();
 
   // Read every animation frame by the paint loop below — a ref (not state)
@@ -170,8 +171,11 @@ export default function ExtractPathPage() {
       // SWAY_PAD (18) because the slider is capped at 11. The flow field also
       // sweeps at u_time * 0.85. 0 under reduced motion (set by the paint loop).
       swayAmt: movement,
+      // Brightness of the violet Worley-crack gap-fill plasma + its sparks
+      // (see the gap block in lichtenbergShader.js). Its own slider.
+      plasmaBright,
     };
-  }, [thickness, edgeMix, intensity, movement]);
+  }, [thickness, edgeMix, intensity, movement, plasmaBright]);
 
   // Ambient motion loop: paintLichtenberg now re-runs every frame (not just
   // on param change) because u_time/u_swayAmt displace each path's actual
@@ -372,6 +376,17 @@ export default function ExtractPathPage() {
             step="0.5"
             value={movement}
             onChange={(e) => setMovement(Number(e.target.value))}
+          />
+        </label>
+        <label className="extract-path-page__control">
+          Plasma brightness {plasmaBright.toFixed(2)}
+          <input
+            type="range"
+            min="0"
+            max="3"
+            step="0.05"
+            value={plasmaBright}
+            onChange={(e) => setPlasmaBright(Number(e.target.value))}
           />
         </label>
       </div>
