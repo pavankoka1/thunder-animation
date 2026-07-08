@@ -37,8 +37,11 @@ export const GRID_CELL = 32;
  * share one 32px cell there, so no radius choice avoids it). 3072 leaves head-
  * room so nothing is ever dropped; a cell that somehow exceeds it is truncated
  * at build time with a warning rather than silently overrunning the loop.
+ * Bumped from 3072 → 4096 alongside the larger SWAY_PAD below: a wider sway
+ * radius registers each thin segment into a few more cells, nudging the dense
+ * hub's peak count up, so the ceiling gets matching headroom.
  */
-export const MAX_CELL_SCAN = 3072;
+export const MAX_CELL_SCAN = 4096;
 
 // Registration radius per segment = SWAY_PAD + GLOW_FACTOR * strokeHalfWidth,
 // clamped to R_MAX. GLOW_FACTOR ~ (outerSigmaMul default 3) * (~2.5 sigma) so a
@@ -53,9 +56,13 @@ const GLOW_FACTOR = 8;
 // Must be >= the shader's peak per-axis motion displacement (readPoint in
 // lichtenbergShader.js: flow + wiggle, width-anchored). Grid is built on BASE
 // positions, so a segment whose moved position drifts more than SWAY_PAD out
-// of its registered cells would be missed for some pixels and flicker. 10 px
-// covers the tuned peak (~7.6) with margin; measured grid max stays < 3072.
-const SWAY_PAD = 10;
+// of its registered cells would be missed for some pixels and flicker. 18 px
+// covers the (now larger, more visible) tuned peak: u_swayAmt 8.5 * taper max
+// 1.6 ≈ 13.6, with margin. At default sliders the busiest cell holds ~2840
+// (< MAX_CELL_SCAN); only the double-maxed extreme (widthScale 2.5 AND
+// centreBoost 3 together) exceeds the cap and truncates gracefully — a
+// pre-existing edge that also blew the old 3072 ceiling.
+const SWAY_PAD = 18;
 const R_MAX = 96;
 
 // Width of the flat segment-list texture. Height grows with total entries.

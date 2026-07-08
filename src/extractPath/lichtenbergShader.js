@@ -118,12 +118,12 @@ vec3 readPoint(int pathIdx, int ptIdx) {
   // real frame rate on integrated GPUs. Amplitude is WIDTH-anchored — thin
   // tips wave, thick hubs barely move, so filaments undulate from a fixed
   // bright root (keeps the hubs stable/sharp). Peak per-axis displacement
-  // (u_swayAmt * 1.4) stays under spatialGrid.js SWAY_PAD so the grid never
+  // (u_swayAmt * 1.6) stays under spatialGrid.js SWAY_PAD so the grid never
   // misses a moved segment (which would flicker).
-  float ft = u_time * 0.5;
-  vec2 fp = p.xy * 0.03;
+  float ft = u_time * 0.85;
+  vec2 fp = p.xy * 0.032;
   vec2 flow = vec2(sin(fp.y + ft), cos(fp.x - ft * 0.9));
-  float taper = clamp(2.2 / (p.z + 0.8), 0.25, 1.4);
+  float taper = clamp(2.2 / (p.z + 0.8), 0.25, 1.6);
   p.xy += flow * u_swayAmt * taper;
   return p;
 }
@@ -333,12 +333,12 @@ vec3 readPoint(int pathIdx, int ptIdx) {
   // real frame rate on integrated GPUs. Amplitude is WIDTH-anchored — thin
   // tips wave, thick hubs barely move, so filaments undulate from a fixed
   // bright root (keeps the hubs stable/sharp). Peak per-axis displacement
-  // (u_swayAmt * 1.4) stays under spatialGrid.js SWAY_PAD so the grid never
+  // (u_swayAmt * 1.6) stays under spatialGrid.js SWAY_PAD so the grid never
   // misses a moved segment (which would flicker).
-  float ft = u_time * 0.5;
-  vec2 fp = p.xy * 0.03;
+  float ft = u_time * 0.85;
+  vec2 fp = p.xy * 0.032;
   vec2 flow = vec2(sin(fp.y + ft), cos(fp.x - ft * 0.9));
-  float taper = clamp(2.2 / (p.z + 0.8), 0.25, 1.4);
+  float taper = clamp(2.2 / (p.z + 0.8), 0.25, 1.6);
   p.xy += flow * u_swayAmt * taper;
   return p;
 }

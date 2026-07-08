@@ -1,0 +1,27 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - link "← Home" [ref=e5] [cursor=pointer]:
+      - /url: /
+    - heading "Extract path — real pattern extraction" [level=1] [ref=e6]
+    - paragraph [ref=e7]:
+      - text: Traced directly from
+      - code [ref=e8]: public/analyse/neural-reference.jpg
+      - text: "with external image-processing tools (Python + numpy/scipy/scikit-image): threshold → skeletonize → distance-transform for real per-point thickness → trace into polylines at junctions/endpoints (see"
+      - code [ref=e9]: scripts/extract_lichtenberg_pattern.py
+      - text: ). No synthetic geometry — every path and width below came from the photo, drawn with a per-fragment nearest-segment SDF shader.
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - text: Width scale 1.00
+      - slider "Width scale 1.00" [ref=e14]: "1"
+    - generic [ref=e15]:
+      - text: Glow thickness 1.00
+      - slider "Glow thickness 1.00" [ref=e16]: "1"
+    - generic [ref=e17]:
+      - text: Centre boost 1.15
+      - slider "Centre boost 1.15" [ref=e18]: "1.15"
+    - generic [ref=e19]:
+      - text: Violet edge tint 1.00
+      - slider "Violet edge tint 1.00" [ref=e20]: "1"
+    - generic [ref=e21]:
+      - text: Path colour intensity 1.00
+      - slider "Path colour intensity 1.00" [ref=e22]: "1"

@@ -58,20 +58,24 @@
   display: block;
 }
 
-/* BLUE body, matching reference.png (cyan-ish top drifting to blue/indigo at
- * the bottom). The energy canvas above screen-blends onto this (see __energy
- * mix-blend-mode): the bright white-cyan veins add toward white and pop against
- * the blue field, while the gaps read as the reference's cyan-blue plasma — the
- * violet at the perimeter comes from the shader's radial edge tint (u_edgeMix)
- * plus the magenta outer ring. Kept a MEDIUM brightness (deeper than the old
- * near-white #8ad2f5 fill, which over screen-blend washed the veins into a
- * milky haze) so the thin veins stay clearly legible on top. */
+/* BLUE body, colour-matched to reference.png. These stops are the ACTUAL
+ * inter-vein plasma colours sampled per vertical band from reference.png
+ * (Python percentile of the gaps BETWEEN veins, left half to avoid the chip):
+ *   top gap   #6fa3f1  (cyan-blue)
+ *   mid gap   #83caf7  (bright cyan — the plasma's central hotspot)
+ *   bottom    #7f91f6  (violet-blue)
+ * The energy canvas above screen-blends onto this (see __energy
+ * mix-blend-mode): the near-white veins (reference peaks measure pure #ffffff)
+ * add toward white and pop, while the open gaps read as exactly this sampled
+ * plasma. The body itself is the gap colour (not the brighter composite) so
+ * body + screen-blended veins ≈ the reference. The violet perimeter comes from
+ * the shader's radial edge tint (u_edgeMix) plus the magenta outer ring. */
 .extract-path-betspot__body {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(120% 95% at 50% 24%, #7ec6f0 0%, rgba(110, 180, 235, 0) 58%),
-    linear-gradient(180deg, #3f8dd6 0%, #3773c8 38%, #345fbe 68%, #3c48a4 100%);
+    radial-gradient(120% 100% at 50% 40%, #86ccf6 0%, rgba(124, 196, 245, 0) 60%),
+    linear-gradient(180deg, #6fa3f1 0%, #7bbef5 40%, #79b6f3 60%, #7f91f6 100%);
   /* Soft magenta bloom behind the crisp WebGL outer-border ring (see
    * paintOuterBorder in lichtenbergRenderer.js) — same values as /analyse's
    * peak betspot glow (AnalysePage.css), which was tuned against this same

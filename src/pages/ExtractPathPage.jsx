@@ -35,10 +35,11 @@ export default function ExtractPathPage() {
   const rendererRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(null);
-  const [widthScale, setWidthScale] = useState(1);
+  const [widthScale, setWidthScale] = useState(3);
   const [thickness, setThickness] = useState(1);
   const [centerBoost, setCenterBoost] = useState(1.15);
   const [edgeMix, setEdgeMix] = useState(1.0);
+  const [intensity, setIntensity] = useState(0.5);
   const reducedMotion = useReducedMotion();
 
   // Read every animation frame by the paint loop below — a ref (not state)
@@ -124,18 +125,21 @@ export default function ExtractPathPage() {
       coreSigmaMul: 0.52 * thickness,
       glowSigmaMul: 0.8 * thickness,
       outerSigmaMul: 1.6 * thickness,
-      // Bright white-hot core (reference cores are near-white and crisp), with
-      // the surrounding halos dialled DOWN so they accent the line instead of
-      // flooding the gaps between lines.
-      coreAlpha: 1.0,
-      glowAlpha: 0.24,
-      outerAlpha: 0.05,
-      // Colours sampled directly from reference.png: vein peaks average
-      // ~#d0f3f8 (pale cyan, not white); the body background itself is
-      // already blue, so glow/outer stay closer to that same cyan-blue
-      // family instead of a generic saturated blue that fights the body.
-      coreColor: [0.9, 0.98, 1.0],
-      glowColor: [0.6, 0.85, 0.98],
+      // Bright white-hot core (reference vein PEAKS measure pure #ffffff — not
+      // just pale cyan — so the core is pushed to near-white), with the
+      // surrounding halos dialled DOWN so they accent the line instead of
+      // flooding the gaps between lines. The `intensity` slider scales all
+      // three alphas together, so the veins can be brightened/dimmed against
+      // the (fixed) plasma body without touching their colour balance.
+      coreAlpha: 1.0 * intensity,
+      glowAlpha: 0.24 * intensity,
+      outerAlpha: 0.05 * intensity,
+      // Colours sampled directly from reference.png: vein peaks are pure white,
+      // cooling to pale cyan just off the core; the body background itself is
+      // already blue, so glow/outer stay in that same cyan-blue family instead
+      // of a generic saturated blue that fights the body.
+      coreColor: [0.97, 0.99, 1.0],
+      glowColor: [0.62, 0.86, 1.0],
       outerColor: [0.45, 0.68, 0.95],
       // Ambient field kept very low: the reference's ground between filaments
       // is near-black, not a lit haze. A faint fill still lets the violet edge
@@ -153,12 +157,13 @@ export default function ExtractPathPage() {
       edgePow: 1.0,
       edgeMix,
       // Motion amplitude (body px) for the flow-field sway — see readPoint in
-      // lichtenbergShader.js. Higher than before so the drift is clearly
-      // visible; peak displacement (swayAmt * taper 1.4 ≈ 8.4) stays under the
-      // grid's SWAY_PAD (10). 0 under reduced motion (set by the paint loop).
-      swayAmt: 6.0,
+      // lichtenbergShader.js. Raised so the drift is clearly visible; peak
+      // displacement (swayAmt 8.5 * taper max 1.6 ≈ 13.6) stays under the grid's
+      // SWAY_PAD (18). The flow field also sweeps faster now (u_time * 0.85).
+      // 0 under reduced motion (set by the paint loop).
+      swayAmt: 8.5,
     };
-  }, [thickness, edgeMix]);
+  }, [thickness, edgeMix, intensity]);
 
   // Ambient motion loop: paintLichtenberg now re-runs every frame (not just
   // on param change) because u_time/u_swayAmt displace each path's actual
@@ -326,6 +331,17 @@ export default function ExtractPathPage() {
             step="0.05"
             value={edgeMix}
             onChange={(e) => setEdgeMix(Number(e.target.value))}
+          />
+        </label>
+        <label className="extract-path-page__control">
+          Path colour intensity {intensity.toFixed(2)}
+          <input
+            type="range"
+            min="0.2"
+            max="3"
+            step="0.05"
+            value={intensity}
+            onChange={(e) => setIntensity(Number(e.target.value))}
           />
         </label>
       </div>
