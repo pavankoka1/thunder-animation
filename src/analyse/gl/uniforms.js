@@ -73,4 +73,7 @@ export function applyOuterUniforms(gl, u, cfg, frame) {
   gl.uniform1f(u.u_lumpJitter, cfg.lumpJitter);
   gl.uniform1f(u.u_lumpGlow, cfg.lumpGlow);
   gl.uniform1f(u.u_lumpCount, cfg.lumpCount);
+  gl.uniform1f(u.u_wobbleAmt, cfg.wobbleAmount ?? 0);
+  gl.uniform1f(u.u_wobbleFreq, cfg.wobbleFreq ?? 6);
+  gl.uniform1f(u.u_wobbleSpeed, cfg.wobbleSpeed ?? 0.15);
 }

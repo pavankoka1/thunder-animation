@@ -40,13 +40,13 @@ export default function ExtractPathPage() {
   const [centerBoost, setCenterBoost] = useState(1.15);
   const [edgeMix, setEdgeMix] = useState(1.0);
   const [intensity, setIntensity] = useState(0.5);
-  const [cornerDensity, setCornerDensity] = useState(1);
+  const [cornerDensity, setCornerDensity] = useState(0.5);
   // Flow-field sway amplitude (body px). Peak per-axis displacement is
   // movement * taper max 1.6, which must stay under spatialGrid.js SWAY_PAD
   // (18) or moved segments drift out of their registered cells and flicker —
   // hence the slider max of 11 (11 * 1.6 = 17.6 < 18).
-  const [movement, setMovement] = useState(20);
-  const [plasmaBright, setPlasmaBright] = useState(1.0);
+  const [movement, setMovement] = useState(25);
+  const [plasmaBright, setPlasmaBright] = useState(3.0);
   const reducedMotion = useReducedMotion();
 
   // Read every animation frame by the paint loop below — a ref (not state)

@@ -10,15 +10,19 @@
  */
 import { loadExtractedNetwork } from "./loadExtractedNetwork.js";
 
-/** Current default slider values (the "main" values). */
+/** Current default slider values (the "main" values), matching ExtractPathPage. */
 export const LICHTENBERG_DEFAULTS = {
   widthScale: 3,
   thickness: 1,
   centerBoost: 1.15,
   edgeMix: 1.0,
   intensity: 0.5,
-  cornerDensity: 1,
-  movement: 8.5,
+  cornerDensity: 0.5,
+  movement: 25,
+  plasmaBright: 2,
+  // Temporal speed of the violet gap-fill plasma. 1 = current speed; lower it
+  // to slow the plasma drift/twinkle independently of the vein Movement.
+  plasmaSpeed: 0.8,
 };
 
 /**
@@ -34,6 +38,8 @@ export function buildLichtenbergStyle(values = {}) {
     edgeMix = LICHTENBERG_DEFAULTS.edgeMix,
     intensity = LICHTENBERG_DEFAULTS.intensity,
     movement = LICHTENBERG_DEFAULTS.movement,
+    plasmaBright = LICHTENBERG_DEFAULTS.plasmaBright,
+    plasmaSpeed = LICHTENBERG_DEFAULTS.plasmaSpeed,
   } = values;
 
   return {
@@ -61,6 +67,11 @@ export function buildLichtenbergStyle(values = {}) {
     edgeMix,
     // Flow-field sway amplitude (body px). See readPoint in lichtenbergShader.js.
     swayAmt: movement,
+    // Brightness of the violet Worley-crack gap-fill plasma + its sparks
+    // (see the gap block in lichtenbergShader.js).
+    plasmaBright,
+    // Temporal speed of that plasma (1 = current). Lower = slower drift.
+    plasmaSpeed,
   };
 }
 

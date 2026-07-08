@@ -49,6 +49,15 @@ export const OUTER_CONFIG = {
   lumpJitter: 0.85, // spacing irregularity (0 = even, 1 = ±half-slot)
   lumpGlow: 0.9, // overall additive brightness of the lump layer
 
+  // ---- irregular surface wobble ----
+  // Pushes the WHOLE neon outline (crisp core + glow bands) in and out along
+  // the perimeter with seam-free, two-octave noise, so the border is an
+  // IRREGULAR wavy curve instead of a clean rounded rectangle (see OUTER_FRAG
+  // dWob). Set wobbleAmount to 0 to get the old perfectly-smooth outline back.
+  wobbleAmount: 4.0, // ± reach of the wobble in px (0 disables)
+  wobbleFreq: 6.0, // ~number of undulations around the perimeter (higher = more, finer)
+  wobbleSpeed: 0.2, // drift/animation rate of the wobble
+
   // ---- reveal timing ----
   // Measured from the reference clip: the outer crawl starts in parallel with
   // the Phase A scale/glow (t=0, no lag) and closes the loop in ~350ms. The

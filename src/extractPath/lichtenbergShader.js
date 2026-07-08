@@ -97,6 +97,7 @@ uniform float u_edgeStart, u_edgePow, u_edgeMix;
 uniform vec3 u_ambientColor;
 uniform float u_ambientAlpha;
 uniform float u_plasmaBright; // brightness of the violet gap-fill plasma (slider)
+uniform float u_plasmaSpeed; // temporal speed multiplier of the gap-fill plasma (1 = current)
 
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 
@@ -308,7 +309,7 @@ void main() {
   // Worley sample coordinate. So the whole field — traced veins + violet fill —
   // drifts and morphs together as one animation, and both freeze together under
   // reduced motion (swayAmt 0).
-  float ft = u_time * 0.85;
+  float ft = u_time * 0.85 * u_plasmaSpeed;
   vec2 fp = pix * 0.032;
   vec2 veinFlow = vec2(sin(fp.y + ft), cos(fp.x - ft * 0.9));
   vec2 vp = (pix + veinFlow * u_swayAmt) / 26.0;           // flow-warped cell coords
@@ -320,7 +321,7 @@ void main() {
   // in and out over time — the twinkle "transition".
   vec2 spc = floor(pix / 3.2);
   float sphv = hash(spc * 2.9 + 7.3);
-  float sparkV = smoothstep(0.93, 1.0, sphv) * max(0.0, sin(u_time * 4.0 + sphv * 55.0));
+  float sparkV = smoothstep(0.93, 1.0, sphv) * max(0.0, sin(u_time * 4.0 * u_plasmaSpeed + sphv * 55.0));
   col += violetCol * gapMask * (vein * 0.5 + veinCore * 0.55 + sparkV * 1.3) * u_plasmaBright;
 
   // Ambient fill uses the SAME radial mix as the veins, so the violet edge
@@ -381,6 +382,7 @@ uniform float u_edgeStart, u_edgePow, u_edgeMix;
 uniform vec3 u_ambientColor;
 uniform float u_ambientAlpha;
 uniform float u_plasmaBright; // brightness of the violet gap-fill plasma (slider)
+uniform float u_plasmaSpeed; // temporal speed multiplier of the gap-fill plasma (1 = current)
 
 float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
 
@@ -550,7 +552,7 @@ void main() {
   // Worley sample coordinate. So the whole field — traced veins + violet fill —
   // drifts and morphs together as one animation, and both freeze together under
   // reduced motion (swayAmt 0).
-  float ft = u_time * 0.85;
+  float ft = u_time * 0.85 * u_plasmaSpeed;
   vec2 fp = pix * 0.032;
   vec2 veinFlow = vec2(sin(fp.y + ft), cos(fp.x - ft * 0.9));
   vec2 vp = (pix + veinFlow * u_swayAmt) / 26.0;           // flow-warped cell coords
@@ -562,7 +564,7 @@ void main() {
   // in and out over time — the twinkle "transition".
   vec2 spc = floor(pix / 3.2);
   float sphv = hash(spc * 2.9 + 7.3);
-  float sparkV = smoothstep(0.93, 1.0, sphv) * max(0.0, sin(u_time * 4.0 + sphv * 55.0));
+  float sparkV = smoothstep(0.93, 1.0, sphv) * max(0.0, sin(u_time * 4.0 * u_plasmaSpeed + sphv * 55.0));
   col += violetCol * gapMask * (vein * 0.5 + veinCore * 0.55 + sparkV * 1.3) * u_plasmaBright;
 
   vec3 ambientColorAt = mix(u_ambientColor, u_edgeColor, edgeMixT);
@@ -602,4 +604,5 @@ export const UNIFORM_NAMES = [
   "u_ambientColor",
   "u_ambientAlpha",
   "u_plasmaBright",
+  "u_plasmaSpeed",
 ];

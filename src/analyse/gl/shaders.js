@@ -169,6 +169,7 @@ uniform vec3 u_coreColor, u_midColor, u_haloColor;
 uniform float u_coreInt, u_midInt, u_haloInt;
 uniform float u_tail, u_headBoost, u_heartbeat;
 uniform float u_lumpAmt, u_lumpWidth, u_lumpSoft, u_lumpDrift, u_lumpBreath, u_lumpJitter, u_lumpGlow, u_lumpCount;
+uniform float u_wobbleAmt, u_wobbleFreq, u_wobbleSpeed;
 
 const float HALF_PI = 1.5707963267948966;
 
@@ -248,12 +249,24 @@ void main(){
   vec2 ring = dir * (u_freqAlong / 6.28318530718);
   float n = fbm(ring + vec2(scroll, sd / max(u_freqAcross, 1.0)));
 
-  float dEff = d - n * u_flameOut * (0.4 + 0.6 * outside);
+  // Irregular SURFACE wobble: push the WHOLE neon outline (core + bands) in and
+  // out by a seam-free, multi-octave noise sampled around the perimeter, so the
+  // border reads as an irregular hand-drawn curve rather than a clean rounded
+  // rect. Sampled on the same perimeter CIRCLE as the flame (inherently periodic
+  // -> no seam at s=0/1); two decorrelated octaves break up any residual
+  // regularity; symmetric (-0.5..0.5) so it waves both inward and outward.
+  // Amount/frequency/speed are OUTER_CONFIG knobs.
+  vec2 wdir = dir * (u_wobbleFreq / 6.28318530718);
+  float wob = fbm(wdir + vec2(u_time * u_wobbleSpeed, 4.7)) - 0.5;
+  wob += 0.5 * (fbm(wdir * 2.7 + vec2(19.3, u_time * u_wobbleSpeed * 0.6)) - 0.5);
+  float dWob = d + wob * u_wobbleAmt;
+
+  float dEff = dWob - n * u_flameOut * (0.4 + 0.6 * outside);
   vec2 ringi = dir * (u_innerFreq / 6.28318530718);
   float rn = fbm(ringi + vec2(0.0, sd * 0.5 + 7.0));
   dEff += (1.0 - outside) * (rn - 0.5) * u_flameOut * 0.5;
 
-  float core = exp(-pow(d / max(u_coreW, 0.5), 2.0));
+  float core = exp(-pow(dWob / max(u_coreW, 0.5), 2.0));
   float mid  = exp(-pow(dEff / max(u_midW, 1.0), 2.0));
   float halo = exp(-pow(dEff / max(u_haloW, 1.0), 2.0)) * (0.5 + 0.5 * n);
 
@@ -364,6 +377,7 @@ uniform vec3 u_coreColor, u_midColor, u_haloColor;
 uniform float u_coreInt, u_midInt, u_haloInt;
 uniform float u_tail, u_headBoost, u_heartbeat;
 uniform float u_lumpAmt, u_lumpWidth, u_lumpSoft, u_lumpDrift, u_lumpBreath, u_lumpJitter, u_lumpGlow, u_lumpCount;
+uniform float u_wobbleAmt, u_wobbleFreq, u_wobbleSpeed;
 
 const float HALF_PI = 1.5707963267948966;
 
@@ -443,12 +457,24 @@ void main(){
   vec2 ring = dir * (u_freqAlong / 6.28318530718);
   float n = fbm(ring + vec2(scroll, sd / max(u_freqAcross, 1.0)));
 
-  float dEff = d - n * u_flameOut * (0.4 + 0.6 * outside);
+  // Irregular SURFACE wobble: push the WHOLE neon outline (core + bands) in and
+  // out by a seam-free, multi-octave noise sampled around the perimeter, so the
+  // border reads as an irregular hand-drawn curve rather than a clean rounded
+  // rect. Sampled on the same perimeter CIRCLE as the flame (inherently periodic
+  // -> no seam at s=0/1); two decorrelated octaves break up any residual
+  // regularity; symmetric (-0.5..0.5) so it waves both inward and outward.
+  // Amount/frequency/speed are OUTER_CONFIG knobs.
+  vec2 wdir = dir * (u_wobbleFreq / 6.28318530718);
+  float wob = fbm(wdir + vec2(u_time * u_wobbleSpeed, 4.7)) - 0.5;
+  wob += 0.5 * (fbm(wdir * 2.7 + vec2(19.3, u_time * u_wobbleSpeed * 0.6)) - 0.5);
+  float dWob = d + wob * u_wobbleAmt;
+
+  float dEff = dWob - n * u_flameOut * (0.4 + 0.6 * outside);
   vec2 ringi = dir * (u_innerFreq / 6.28318530718);
   float rn = fbm(ringi + vec2(0.0, sd * 0.5 + 7.0));
   dEff += (1.0 - outside) * (rn - 0.5) * u_flameOut * 0.5;
 
-  float core = exp(-pow(d / max(u_coreW, 0.5), 2.0));
+  float core = exp(-pow(dWob / max(u_coreW, 0.5), 2.0));
   float mid  = exp(-pow(dEff / max(u_midW, 1.0), 2.0));
   float halo = exp(-pow(dEff / max(u_haloW, 1.0), 2.0)) * (0.5 + 0.5 * n);
 
@@ -577,4 +603,7 @@ export const OUTER_UNIFORM_NAMES = [
   "u_lumpJitter",
   "u_lumpGlow",
   "u_lumpCount",
+  "u_wobbleAmt",
+  "u_wobbleFreq",
+  "u_wobbleSpeed",
 ];
