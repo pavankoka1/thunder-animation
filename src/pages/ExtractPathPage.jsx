@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { BODY, CHIP, LAYER_URLS, STAGE, SUPERSAMPLE, TOP_BAR } from "../analyse/config/layout.js";
+import {
+  BODY,
+  CHIP,
+  LAYER_URLS,
+  STAGE,
+  SUPERSAMPLE,
+  TOP_BAR,
+} from "../analyse/config/layout.js";
 import { OUTER_CONFIG } from "../analyse/config/outer.js";
 import { useReducedMotion } from "../analyse/hooks/useReducedMotion.js";
 import { computeRendererLayout, layerStyle } from "../analyse/utils/layout.js";
@@ -7,7 +14,6 @@ import { elapsedSeconds } from "../analyse/utils/time.js";
 import {
   createLichtenbergRenderer,
   destroyLichtenbergRenderer,
-  paintComposite,
   paintLichtenberg,
   paintOuterBorder,
   setNetwork,
@@ -31,9 +37,13 @@ export default function ExtractPathPage() {
   const [error, setError] = useState(null);
   const [widthScale, setWidthScale] = useState(1);
   const [thickness, setThickness] = useState(1);
-  const [centerBoost, setCenterBoost] = useState(1.6);
+  const [centerBoost, setCenterBoost] = useState(1.15);
   const [edgeMix, setEdgeMix] = useState(1.0);
   const reducedMotion = useReducedMotion();
+
+  // Read every animation frame by the paint loop below — a ref (not state)
+  // so slider changes don't need to restart the requestAnimationFrame loop.
+  const styleRef = useRef(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -65,6 +75,9 @@ export default function ExtractPathPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Uploads the network to the GPU when its own inputs change. Does NOT
+  // paint — painting happens every animation frame in the loop below, since
+  // the paths themselves now move (see lichtenbergShader.js u_swayAmt).
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!ready || !renderer) return;
@@ -94,30 +107,42 @@ export default function ExtractPathPage() {
       }
     }
     setNetwork(renderer, network);
-    paintLichtenberg(renderer, {
-      // coreSigmaMul is now a half-WIDTH fraction (stroke coverage, not a
-      // Gaussian sigma) — bestW already represents roughly the real
-      // half-width from the distance transform, so ~0.9 draws the stroke
-      // close to its true measured thickness.
-      coreSigmaMul: 0.9 * thickness,
-      glowSigmaMul: 1.6 * thickness,
-      outerSigmaMul: 3.0 * thickness,
-      // coreAlpha was 1.1 (>1) with a pure-white core colour — that combo
-      // pushes huge swaths of the network past the clamp to solid (1,1,1),
-      // which is the "too bright" / blown-out look. reference.png's own
-      // brightest vein pixels are pale cyan (~#d0f3f8, not pure white) and
-      // sit at ~97% of full brightness, not clipped — alpha <=1 with a
-      // slightly-off-white colour reproduces that instead of a flat wash.
-      coreAlpha: 0.78,
-      glowAlpha: 0.32,
-      outerAlpha: 0.1,
+  }, [ready, widthScale, centerBoost]);
+
+  // Style params the paint loop reads each frame — kept in a ref (see above)
+  // rather than passed as effect deps, so changing a slider doesn't restart
+  // requestAnimationFrame.
+  useEffect(() => {
+    styleRef.current = {
+      // SHARP filaments, not blunt tubes. The reference (neural-reference.jpg)
+      // is hair-thin razor-crisp lines on a DARK ground — so the core stays
+      // narrow (coreSigmaMul is a half-WIDTH fraction of the traced width) and
+      // the glow/outer halos are kept TIGHT. Wide halos over a dense network
+      // overlap into a milky wash that buries the individual veins (the old
+      // 1.6/3.0 sigmas did exactly that); pulling them in lets each filament
+      // read as a distinct sharp stroke with just a thin bloom.
+      coreSigmaMul: 0.52 * thickness,
+      glowSigmaMul: 0.8 * thickness,
+      outerSigmaMul: 1.6 * thickness,
+      // Bright white-hot core (reference cores are near-white and crisp), with
+      // the surrounding halos dialled DOWN so they accent the line instead of
+      // flooding the gaps between lines.
+      coreAlpha: 1.0,
+      glowAlpha: 0.24,
+      outerAlpha: 0.05,
       // Colours sampled directly from reference.png: vein peaks average
       // ~#d0f3f8 (pale cyan, not white); the body background itself is
       // already blue, so glow/outer stay closer to that same cyan-blue
       // family instead of a generic saturated blue that fights the body.
-      coreColor: [0.88, 0.98, 1.0],
+      coreColor: [0.9, 0.98, 1.0],
       glowColor: [0.6, 0.85, 0.98],
       outerColor: [0.45, 0.68, 0.95],
+      // Ambient field kept very low: the reference's ground between filaments
+      // is near-black, not a lit haze. A faint fill still lets the violet edge
+      // tint read in the open corners (see u_ambientAlpha edge boost), but not
+      // so much that it washes out the sharp lines.
+      ambientColor: [0.4, 0.7, 0.95],
+      ambientAlpha: 0.035,
       // Radial edge tint: Python analysis of reference.png (hue vs. distance
       // from the body's centre) showed cyan/blue holds for ~72% of the
       // radius then rotates hard to violet/magenta (hue 205 -> 295 deg) in
@@ -127,26 +152,49 @@ export default function ExtractPathPage() {
       edgeStart: 0.05,
       edgePow: 1.0,
       edgeMix,
-    });
-  }, [ready, widthScale, thickness, centerBoost, edgeMix]);
+      // Motion amplitude (body px) for the flow-field sway — see readPoint in
+      // lichtenbergShader.js. Higher than before so the drift is clearly
+      // visible; peak displacement (swayAmt * taper 1.4 ≈ 8.4) stays under the
+      // grid's SWAY_PAD (10). 0 under reduced motion (set by the paint loop).
+      swayAmt: 6.0,
+    };
+  }, [thickness, edgeMix]);
 
-  // Ambient motion loop: cheap per-frame passes only (paintComposite +
-  // paintOuterBorder) — the expensive network bake above only re-runs when
-  // its own inputs change, not every frame. See lichtenbergRenderer.js for
-  // why this two-pass split exists (an 8000-path brute-force search re-run
-  // at 60fps would not be cheap).
+  // Ambient motion loop: paintLichtenberg now re-runs every frame (not just
+  // on param change) because u_time/u_swayAmt displace each path's actual
+  // traced points — that's what makes the paths move, vs. a resampled
+  // static image. The real extracted network (~4700 paths, ~4.6 points
+  // each) keeps this affordable; see lichtenbergRenderer.js.
   useEffect(() => {
     const renderer = rendererRef.current;
     if (!ready || !renderer) return undefined;
 
     const { w, h, rect } = renderer.layout;
     const paintFrame = (timeSec) => {
-      paintComposite(renderer, { time: timeSec });
-      paintOuterBorder(renderer, OUTER_CONFIG, { timeSec, w, h, rect, ...OUTER_FRAME_STYLE });
+      const style = styleRef.current ?? {};
+      paintLichtenberg(renderer, { ...style, time: timeSec });
+      paintOuterBorder(renderer, OUTER_CONFIG, {
+        timeSec,
+        w,
+        h,
+        rect,
+        ...OUTER_FRAME_STYLE,
+      });
     };
 
     if (reducedMotion) {
-      paintFrame(0);
+      // swayAmt: 0 — render paths at their exact traced position (not a
+      // frozen mid-sway offset) so reduced-motion users still see the real
+      // extracted shape, just static.
+      const style = { ...(styleRef.current ?? {}), swayAmt: 0 };
+      paintLichtenberg(renderer, { ...style, time: 0 });
+      paintOuterBorder(renderer, OUTER_CONFIG, {
+        timeSec: 0,
+        w,
+        h,
+        rect,
+        ...OUTER_FRAME_STYLE,
+      });
       return undefined;
     }
 

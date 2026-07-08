@@ -52,20 +52,38 @@ export function loadExtractedNetwork(bodyW, bodyH, options = {}) {
   const scaleY = drawH / ih;
   const wScale = ((scaleX + scaleY) / 2) * widthScale;
 
-  // Floor kept well above 1 body-canvas px: side-by-side comparison against
-  // the reference showed most extracted widths landing sub-pixel at this
-  // resolution (46% of points were hitting the old 0.6px floor, median
-  // coreSigma ~0.24px) which the Gaussian SDF glow renders as isolated
-  // aliased dots instead of a continuous stroke, not the smooth continuous
-  // lines the reference has. 1.4px keeps thin tendrils thin but drawable.
-  const WIDTH_FLOOR = 1.0;
-  const paths = rawPaths.map((pts) =>
+  // Floor in body-canvas px (which is backing px — the canvas is SUPERSAMPLE=4,
+  // so 0.8 body px ≈ 0.2 display px). Kept low so thin tendrils stay HAIR-thin
+  // and razor-sharp like neural-reference.jpg, rather than the blunt tubes the
+  // old higher floor produced. Sub-pixel aliasing (the reason the floor was
+  // once raised) is now handled by the 4x supersampled backing plus the
+  // in-shader supersampling (SUBPIXEL_OFFSETS in lichtenbergShader.js).
+  const WIDTH_FLOOR = 0.8;
+  const mapped = rawPaths.map((pts) =>
     pts.map((p) => ({
       x: offX + p.x * iw * scaleX,
       y: offY + p.y * ih * scaleY,
       w: Math.max(WIDTH_FLOOR, p.w * wScale),
     }))
   );
+
+  // Drop the "thorn" spurs. The skeleton trace splits at every junction and
+  // endpoint, so the raw data is dominated by TINY fragments — the median path
+  // is only ~1.9 body px long and ~75% are under 5px. Rendered, each of those
+  // sub-pixel stubs is a little perpendicular barb, so the filaments read as
+  // feathery/thorny instead of the clean thin lines of reference.png / the
+  // /analyse crack field. Keeping only paths above a real arc-length leaves the
+  // significant filaments and reads clean. (This also thins the network, which
+  // lowers the per-fragment grid search cost — see spatialGrid.js.)
+  const MIN_PATH_LEN = 6; // body px
+  const arcLen = (pts) => {
+    let len = 0;
+    for (let i = 0; i < pts.length - 1; i += 1) {
+      len += Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y);
+    }
+    return len;
+  };
+  const paths = mapped.filter((pts) => pts.length >= 2 && arcLen(pts) >= MIN_PATH_LEN);
 
   return { paths, pointCounts: paths.map((p) => p.length) };
 }

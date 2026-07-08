@@ -1,4 +1,31 @@
+import { MAX_CELL_SCAN } from "./spatialGrid.js";
 import { MAX_PATHS, MAX_POINTS_PER_PATH } from "./lichtenbergTree.js";
+
+// In-shader supersampling of the glow field: each listed [x,y] is a sub-pixel
+// offset findNearest is evaluated at, then averaged, to fight thin-stroke
+// "beading" (see the long note in main()). Each extra sample re-runs the
+// expensive per-fragment nearest-search — the single biggest cost on the dense
+// central hub and the dominant frame-time term on integrated GPUs — so keep
+// this list short. One centred sample is enough here because the canvas backing
+// is ALREADY SUPERSAMPLE=4: every display pixel integrates ~16 backing-pixel
+// evaluations through the 4:1 CSS downscale, which supplies the antialiasing
+// the original 4 in-shader samples were added for (verified: no beading, 60fps
+// on Intel UHD, vs. the context-losing brute-force original). Add offsets back
+// (e.g. a 2- or 4-tap jittered grid) only if a lower-SUPERSAMPLE target ever
+// reintroduces beading.
+const SUBPIXEL_OFFSETS = [
+  [0.33, 0.33],
+  [0.67, 0.67],
+];
+const NSUB = SUBPIXEL_OFFSETS.length;
+const SUB_INV = (1 / NSUB).toFixed(6);
+// GLSL ES 3.00 array-constructor form and the ES 1.00 element-assignment form.
+const SUB_DECL_ES3 = `vec2 offsets[${NSUB}] = vec2[${NSUB}](${SUBPIXEL_OFFSETS.map(
+  ([x, y]) => `vec2(${x.toFixed(3)}, ${y.toFixed(3)})`
+).join(", ")});`;
+const SUB_DECL_ES1 = `vec2 offsets[${NSUB}];\n  ${SUBPIXEL_OFFSETS.map(
+  ([x, y], i) => `offsets[${i}] = vec2(${x.toFixed(3)}, ${y.toFixed(3)});`
+).join("\n  ")}`;
 
 export const VERT = `#version 300 es
 layout(location = 0) in vec2 a_pos;
@@ -6,12 +33,21 @@ void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
 `;
 
 /**
- * Renders the procedurally-generated Lichtenberg network with a per-fragment
+ * Renders the extracted Lichtenberg network with a per-fragment
  * nearest-segment SDF (same technique as src/webgl/thunderRenderer.js's
  * boltDistance), generalised to carry a per-point WIDTH so the glow itself
  * tapers hub -> tip instead of a single global stroke width — that taper is
  * what makes a fractal branch structure actually read as "electrical"
  * rather than a uniform wireframe.
+ *
+ * PERFORMANCE: findNearest does NOT loop over all paths. Each fragment reads
+ * only the segment list of its own cell in the uniform spatial grid (see
+ * spatialGrid.js) — a couple dozen segments in open areas, a few hundred in
+ * the dense hub — instead of all ~4700 paths. That's what makes running this
+ * every animation frame (so u_swayAmt can move the paths) affordable rather
+ * than a GPU-watchdog (TDR) kill. The grid registers each segment into every
+ * cell its glow can still reach, so the nearest-segment result is identical to
+ * the brute-force loop; only the cost changes.
  */
 export const FRAG = `#version 300 es
 precision highp float;
@@ -20,10 +56,25 @@ out vec4 o_color;
 uniform vec2 u_res;
 uniform vec2 u_bodyOffset;
 uniform float u_radius;
+uniform float u_time;
+// Per-path travelling-wave sway (px): each path's own points shift by a
+// smoothly along-path-varying offset, hashed to an independent phase/speed
+// per path, so paths genuinely move (not just a resampled static image) —
+// see readPoint(). Neighbouring points on the SAME path stay close in phase
+// so the line stays a coherent connected stroke, just undulating.
+uniform float u_swayAmt;
 
-uniform int u_numPaths;
 uniform sampler2D u_pointTex; // (x, y, width_px, 1) per point
-uniform sampler2D u_countTex; // point count / MAX_POINTS_PER_PATH, per path
+
+// Spatial grid acceleration (see spatialGrid.js). u_gridTex holds
+// (offset, count) per cell; u_segTex is the flat (pathIdx, ptIdx) list those
+// offsets point into. u_gridOrigin/u_cellSize map body px -> cell coords.
+uniform sampler2D u_gridTex;
+uniform sampler2D u_segTex;
+uniform vec2 u_gridOrigin;
+uniform float u_cellSize;
+uniform vec2 u_gridDim;    // grid cells (w, h)
+uniform vec2 u_segTexDim;  // segment texture (w, h)
 
 uniform float u_coreSigmaMul, u_glowSigmaMul, u_outerSigmaMul;
 uniform float u_coreAlpha, u_glowAlpha, u_outerAlpha;
@@ -46,6 +97,8 @@ uniform float u_edgeStart, u_edgePow, u_edgeMix;
 uniform vec3 u_ambientColor;
 uniform float u_ambientAlpha;
 
+float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+
 float sdRoundBox(vec2 p, vec2 b, float r) {
   vec2 q = abs(p) - (b - vec2(r));
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
@@ -54,38 +107,60 @@ float sdRoundBox(vec2 p, vec2 b, float r) {
 vec3 readPoint(int pathIdx, int ptIdx) {
   float u = (float(ptIdx) + 0.5) / float(${MAX_POINTS_PER_PATH});
   float v = (float(pathIdx) + 0.5) / float(${MAX_PATHS});
-  return texture(u_pointTex, vec2(u, v)).xyz; // x,y in body px; z = width px
-}
+  vec3 p = texture(u_pointTex, vec2(u, v)).xyz; // x,y in body px; z = width px
 
-int readPathPointCount(int pathIdx) {
-  float u = (float(pathIdx) + 0.5) / float(${MAX_PATHS});
-  return int(texture(u_countTex, vec2(u, 0.5)).r * float(${MAX_POINTS_PER_PATH}) + 0.5);
+  // Motion: a single low-frequency spatial FLOW field (function of BASE
+  // position) sweeps the whole web in slow swirls, so neighbouring filaments
+  // drift together and cross/MIX — the morphing look of the reference clip,
+  // not each line jittering in isolation. Deliberately just ONE sin+cos: this
+  // runs per readPoint INSIDE the per-fragment nearest search, so every extra
+  // trig term is multiplied by the (dense) per-cell segment count and costs
+  // real frame rate on integrated GPUs. Amplitude is WIDTH-anchored — thin
+  // tips wave, thick hubs barely move, so filaments undulate from a fixed
+  // bright root (keeps the hubs stable/sharp). Peak per-axis displacement
+  // (u_swayAmt * 1.4) stays under spatialGrid.js SWAY_PAD so the grid never
+  // misses a moved segment (which would flicker).
+  float ft = u_time * 0.5;
+  vec2 fp = p.xy * 0.03;
+  vec2 flow = vec2(sin(fp.y + ft), cos(fp.x - ft * 0.9));
+  float taper = clamp(2.2 / (p.z + 0.8), 0.25, 1.4);
+  p.xy += flow * u_swayAmt * taper;
+  return p;
 }
 
 void findNearest(vec2 p, out float bestD, out float bestW) {
   bestD = 1e9;
   bestW = 1.0;
 
-  for (int path = 0; path < ${MAX_PATHS}; path++) {
-    if (path >= u_numPaths) break;
-    int ptCount = readPathPointCount(path);
-    int segCount = ptCount - 1;
-    if (segCount <= 0) continue;
+  // Which grid cell is this pixel in? Outside the grid -> nothing near.
+  vec2 g = (p - u_gridOrigin) / u_cellSize;
+  if (g.x < 0.0 || g.y < 0.0 || g.x >= u_gridDim.x || g.y >= u_gridDim.y) return;
+  vec2 cellUv = (floor(g) + 0.5) / u_gridDim;
+  vec2 cellInfo = texture(u_gridTex, cellUv).xy; // (offset, count)
+  int off = int(cellInfo.x + 0.5);
+  int cnt = int(cellInfo.y + 0.5);
 
-    for (int i = 0; i < ${MAX_POINTS_PER_PATH - 1}; i++) {
-      if (i >= segCount) break;
-      vec3 pa = readPoint(path, i);
-      vec3 pb = readPoint(path, i + 1);
-      vec2 a = pa.xy;
-      vec2 b = pb.xy;
-      vec2 ab = b - a;
-      float len2 = dot(ab, ab);
-      float t = len2 < 1e-6 ? 0.0 : clamp(dot(p - a, ab) / len2, 0.0, 1.0);
-      float d = length(p - (a + ab * t));
-      if (d < bestD) {
-        bestD = d;
-        bestW = mix(pa.z, pb.z, t);
-      }
+  for (int k = 0; k < ${MAX_CELL_SCAN}; k++) {
+    if (k >= cnt) break;
+    float fidx = float(off + k);
+    float row = floor(fidx / u_segTexDim.x);
+    float col = fidx - row * u_segTexDim.x;
+    vec2 segUv = (vec2(col, row) + 0.5) / u_segTexDim;
+    vec2 seg = texture(u_segTex, segUv).xy; // (pathIdx, ptIdx)
+    int path = int(seg.x + 0.5);
+    int i = int(seg.y + 0.5);
+
+    vec3 pa = readPoint(path, i);
+    vec3 pb = readPoint(path, i + 1);
+    vec2 a = pa.xy;
+    vec2 b = pb.xy;
+    vec2 ab = b - a;
+    float len2 = dot(ab, ab);
+    float t = len2 < 1e-6 ? 0.0 : clamp(dot(p - a, ab) / len2, 0.0, 1.0);
+    float d = length(p - (a + ab * t));
+    if (d < bestD) {
+      bestD = d;
+      bestW = mix(pa.z, pb.z, t);
     }
   }
 }
@@ -96,6 +171,11 @@ void main() {
 
   float sd = sdRoundBox(pix - halfRes, halfRes, u_radius);
   float inBody = 1.0 - smoothstep(-1.0, 1.0, sd);
+  // Fragments fully outside the rounded body contribute nothing (everything
+  // below is multiplied by inBody) — skip the per-sample nearest search
+  // entirely for them. On this stage the body only covers ~half the canvas,
+  // so this alone roughly halves the shaded fragment count.
+  if (inBody <= 0.0) { o_color = vec4(0.0); return; }
 
   // 0 deep inside the body, 1 right at the border — using the rounded-rect
   // SDF (distance to the NEAREST edge/corner) instead of raw distance from
@@ -124,14 +204,13 @@ void main() {
   // reference's smooth continuous lines. MSAA doesn't help here (it only
   // antialiases geometric primitive edges, not a value computed inside the
   // fragment shader) — this needs real supersampling of the glow field
-  // itself: evaluate at 4 jittered sub-pixel offsets and average.
-  vec2 offsets[4] = vec2[4](
-    vec2(0.25, 0.25), vec2(0.75, 0.25),
-    vec2(0.25, 0.75), vec2(0.75, 0.75)
-  );
+  // itself: evaluate at jittered sub-pixel offsets and average (count set by
+  // SUBPIXEL_OFFSETS in the JS module; the SUPERSAMPLE=4 canvas backing already
+  // supplies most of the antialiasing, so a small count suffices here).
+  ${SUB_DECL_ES3}
 
   vec3 col = vec3(0.0);
-  for (int s = 0; s < 4; s++) {
+  for (int s = 0; s < ${NSUB}; s++) {
     vec2 samplePix = pix + offsets[s] - vec2(0.5);
     float bestD, bestW;
     findNearest(samplePix, bestD, bestW);
@@ -147,7 +226,7 @@ void main() {
     // the reference, where a thin tendril is just as crisp as a thick
     // trunk — only the width differs, not the intensity).
     float coreHalfW = max(0.4, bestW * u_coreSigmaMul);
-    float core = (1.0 - smoothstep(coreHalfW - 0.75, coreHalfW + 0.75, bestD)) * u_coreAlpha;
+    float core = (1.0 - smoothstep(coreHalfW - 0.5, coreHalfW + 0.5, bestD)) * u_coreAlpha;
 
     float glowSigma = max(0.5, bestW * u_glowSigmaMul);
     float outerSigma = max(0.8, bestW * u_outerSigmaMul);
@@ -159,9 +238,21 @@ void main() {
     float glow = exp(-(bestD * bestD) / (2.0 * glowSigma * glowSigma)) * u_glowAlpha * edgeBoost;
     float outer = exp(-(bestD * bestD) / (2.0 * outerSigma * outerSigma)) * u_outerAlpha * edgeBoost;
 
-    col += outerColorAt * outer + glowColorAt * glow + coreColorAt * core;
+    // Gentle energy shimmer + hub twinkle — the "sparks", /analyse-style. Both
+    // are functions of POSITION / stroke-width only, NEVER of along-path
+    // position, so they modulate brightness smoothly and radially and can't
+    // paint the perpendicular bands a per-along term would (those read as the
+    // "thorns" a travelling-spark attempt produced). Shimmer = a slow
+    // travelling brightness wave over the whole web; hub twinkle = thick
+    // convergence points flaring, phase varied by local width so it stays
+    // smooth along a filament (no banding).
+    float shimmer = 0.82 + 0.18 * sin(u_time * 2.0 + samplePix.x * 0.04 + samplePix.y * 0.06);
+    float hub = smoothstep(3.5, 8.0, bestW);
+    float hubTw = 0.5 + 0.5 * sin(u_time * 2.7 + bestW * 1.5);
+    col += (outerColorAt * outer + glowColorAt * glow + coreColorAt * core) * shimmer +
+           vec3(0.92, 0.97, 1.0) * core * hub * hubTw * 0.7;
   }
-  col *= 0.25;
+  col *= ${SUB_INV};
 
   // Ambient fill uses the SAME radial mix as the veins, so the violet edge
   // reads clearly even in the open space between branches (most of the
@@ -191,7 +282,8 @@ void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
  * Same math throughout — differences are syntax-only: texture2D() instead
  * of texture(), gl_FragColor instead of out vec4, attribute instead of
  * layout(location=0) in, and no array-constructor initializer (ES 3.00
- * only) for the sub-pixel offsets. See FRAG for the rendering rationale.
+ * only) for the sub-pixel offsets. See FRAG for the rendering rationale and
+ * the spatial-grid performance note.
  */
 export const FRAG_GL1 = `
 precision highp float;
@@ -199,10 +291,17 @@ precision highp float;
 uniform vec2 u_res;
 uniform vec2 u_bodyOffset;
 uniform float u_radius;
+uniform float u_time;
+uniform float u_swayAmt;
 
-uniform int u_numPaths;
 uniform sampler2D u_pointTex;
-uniform sampler2D u_countTex;
+
+uniform sampler2D u_gridTex;
+uniform sampler2D u_segTex;
+uniform vec2 u_gridOrigin;
+uniform float u_cellSize;
+uniform vec2 u_gridDim;
+uniform vec2 u_segTexDim;
 
 uniform float u_coreSigmaMul, u_glowSigmaMul, u_outerSigmaMul;
 uniform float u_coreAlpha, u_glowAlpha, u_outerAlpha;
@@ -213,6 +312,8 @@ uniform float u_edgeStart, u_edgePow, u_edgeMix;
 uniform vec3 u_ambientColor;
 uniform float u_ambientAlpha;
 
+float hash(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+
 float sdRoundBox(vec2 p, vec2 b, float r) {
   vec2 q = abs(p) - (b - vec2(r));
   return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
@@ -221,38 +322,59 @@ float sdRoundBox(vec2 p, vec2 b, float r) {
 vec3 readPoint(int pathIdx, int ptIdx) {
   float u = (float(ptIdx) + 0.5) / float(${MAX_POINTS_PER_PATH});
   float v = (float(pathIdx) + 0.5) / float(${MAX_PATHS});
-  return texture2D(u_pointTex, vec2(u, v)).xyz;
-}
+  vec3 p = texture2D(u_pointTex, vec2(u, v)).xyz;
 
-int readPathPointCount(int pathIdx) {
-  float u = (float(pathIdx) + 0.5) / float(${MAX_PATHS});
-  return int(texture2D(u_countTex, vec2(u, 0.5)).r * float(${MAX_POINTS_PER_PATH}) + 0.5);
+  // Motion: a single low-frequency spatial FLOW field (function of BASE
+  // position) sweeps the whole web in slow swirls, so neighbouring filaments
+  // drift together and cross/MIX — the morphing look of the reference clip,
+  // not each line jittering in isolation. Deliberately just ONE sin+cos: this
+  // runs per readPoint INSIDE the per-fragment nearest search, so every extra
+  // trig term is multiplied by the (dense) per-cell segment count and costs
+  // real frame rate on integrated GPUs. Amplitude is WIDTH-anchored — thin
+  // tips wave, thick hubs barely move, so filaments undulate from a fixed
+  // bright root (keeps the hubs stable/sharp). Peak per-axis displacement
+  // (u_swayAmt * 1.4) stays under spatialGrid.js SWAY_PAD so the grid never
+  // misses a moved segment (which would flicker).
+  float ft = u_time * 0.5;
+  vec2 fp = p.xy * 0.03;
+  vec2 flow = vec2(sin(fp.y + ft), cos(fp.x - ft * 0.9));
+  float taper = clamp(2.2 / (p.z + 0.8), 0.25, 1.4);
+  p.xy += flow * u_swayAmt * taper;
+  return p;
 }
 
 void findNearest(vec2 p, out float bestD, out float bestW) {
   bestD = 1e9;
   bestW = 1.0;
 
-  for (int path = 0; path < ${MAX_PATHS}; path++) {
-    if (path >= u_numPaths) break;
-    int ptCount = readPathPointCount(path);
-    int segCount = ptCount - 1;
-    if (segCount <= 0) continue;
+  vec2 g = (p - u_gridOrigin) / u_cellSize;
+  if (g.x < 0.0 || g.y < 0.0 || g.x >= u_gridDim.x || g.y >= u_gridDim.y) return;
+  vec2 cellUv = (floor(g) + 0.5) / u_gridDim;
+  vec2 cellInfo = texture2D(u_gridTex, cellUv).xy;
+  int off = int(cellInfo.x + 0.5);
+  int cnt = int(cellInfo.y + 0.5);
 
-    for (int i = 0; i < ${MAX_POINTS_PER_PATH - 1}; i++) {
-      if (i >= segCount) break;
-      vec3 pa = readPoint(path, i);
-      vec3 pb = readPoint(path, i + 1);
-      vec2 a = pa.xy;
-      vec2 b = pb.xy;
-      vec2 ab = b - a;
-      float len2 = dot(ab, ab);
-      float t = len2 < 1e-6 ? 0.0 : clamp(dot(p - a, ab) / len2, 0.0, 1.0);
-      float d = length(p - (a + ab * t));
-      if (d < bestD) {
-        bestD = d;
-        bestW = mix(pa.z, pb.z, t);
-      }
+  for (int k = 0; k < ${MAX_CELL_SCAN}; k++) {
+    if (k >= cnt) break;
+    float fidx = float(off + k);
+    float row = floor(fidx / u_segTexDim.x);
+    float col = fidx - row * u_segTexDim.x;
+    vec2 segUv = (vec2(col, row) + 0.5) / u_segTexDim;
+    vec2 seg = texture2D(u_segTex, segUv).xy;
+    int path = int(seg.x + 0.5);
+    int i = int(seg.y + 0.5);
+
+    vec3 pa = readPoint(path, i);
+    vec3 pb = readPoint(path, i + 1);
+    vec2 a = pa.xy;
+    vec2 b = pb.xy;
+    vec2 ab = b - a;
+    float len2 = dot(ab, ab);
+    float t = len2 < 1e-6 ? 0.0 : clamp(dot(p - a, ab) / len2, 0.0, 1.0);
+    float d = length(p - (a + ab * t));
+    if (d < bestD) {
+      bestD = d;
+      bestW = mix(pa.z, pb.z, t);
     }
   }
 }
@@ -263,6 +385,7 @@ void main() {
 
   float sd = sdRoundBox(pix - halfRes, halfRes, u_radius);
   float inBody = 1.0 - smoothstep(-1.0, 1.0, sd);
+  if (inBody <= 0.0) { gl_FragColor = vec4(0.0); return; }
 
   float insetDist = min(halfRes.x, halfRes.y) * 0.4;
   float edgeT = 1.0 - clamp(-sd / insetDist, 0.0, 1.0);
@@ -271,20 +394,16 @@ void main() {
   vec3 glowColorAt = mix(u_glowColor, u_edgeColor, edgeMixT);
   vec3 outerColorAt = mix(u_outerColor, u_edgeColor, edgeMixT);
 
-  vec2 offsets[4];
-  offsets[0] = vec2(0.25, 0.25);
-  offsets[1] = vec2(0.75, 0.25);
-  offsets[2] = vec2(0.25, 0.75);
-  offsets[3] = vec2(0.75, 0.75);
+  ${SUB_DECL_ES1}
 
   vec3 col = vec3(0.0);
-  for (int s = 0; s < 4; s++) {
+  for (int s = 0; s < ${NSUB}; s++) {
     vec2 samplePix = pix + offsets[s] - vec2(0.5);
     float bestD, bestW;
     findNearest(samplePix, bestD, bestW);
 
     float coreHalfW = max(0.4, bestW * u_coreSigmaMul);
-    float core = (1.0 - smoothstep(coreHalfW - 0.75, coreHalfW + 0.75, bestD)) * u_coreAlpha;
+    float core = (1.0 - smoothstep(coreHalfW - 0.5, coreHalfW + 0.5, bestD)) * u_coreAlpha;
 
     float glowSigma = max(0.5, bestW * u_glowSigmaMul);
     float outerSigma = max(0.8, bestW * u_outerSigmaMul);
@@ -292,9 +411,21 @@ void main() {
     float glow = exp(-(bestD * bestD) / (2.0 * glowSigma * glowSigma)) * u_glowAlpha * edgeBoost;
     float outer = exp(-(bestD * bestD) / (2.0 * outerSigma * outerSigma)) * u_outerAlpha * edgeBoost;
 
-    col += outerColorAt * outer + glowColorAt * glow + coreColorAt * core;
+    // Gentle energy shimmer + hub twinkle — the "sparks", /analyse-style. Both
+    // are functions of POSITION / stroke-width only, NEVER of along-path
+    // position, so they modulate brightness smoothly and radially and can't
+    // paint the perpendicular bands a per-along term would (those read as the
+    // "thorns" a travelling-spark attempt produced). Shimmer = a slow
+    // travelling brightness wave over the whole web; hub twinkle = thick
+    // convergence points flaring, phase varied by local width so it stays
+    // smooth along a filament (no banding).
+    float shimmer = 0.82 + 0.18 * sin(u_time * 2.0 + samplePix.x * 0.04 + samplePix.y * 0.06);
+    float hub = smoothstep(3.5, 8.0, bestW);
+    float hubTw = 0.5 + 0.5 * sin(u_time * 2.7 + bestW * 1.5);
+    col += (outerColorAt * outer + glowColorAt * glow + coreColorAt * core) * shimmer +
+           vec3(0.92, 0.97, 1.0) * core * hub * hubTw * 0.7;
   }
-  col *= 0.25;
+  col *= ${SUB_INV};
 
   vec3 ambientColorAt = mix(u_ambientColor, u_edgeColor, edgeMixT);
   col += ambientColorAt * u_ambientAlpha * (1.0 + edgeMixT * 7.0);
@@ -304,112 +435,19 @@ void main() {
 }
 `;
 
-/**
- * Cheap per-frame compositing pass: samples the lichtenberg network baked by
- * FRAG/FRAG_GL1 (an expensive O(MAX_PATHS * MAX_POINTS_PER_PATH) per-fragment
- * search, only re-run when the network/style actually changes — see
- * lichtenbergRenderer.js) and modulates its brightness with cheap time-based
- * terms. This is what gives the extracted (real, traced) network the same
- * "breathing energy" feel as /analyse's procedural plasma without re-running
- * that expensive search every animation frame — and without ever moving the
- * traced stroke positions themselves, so the real path shapes stay exact.
- */
-export const COMPOSITE_UNIFORM_NAMES = [
-  "u_bakeTex",
-  "u_res",
-  "u_time",
-  "u_shimmerAmt",
-  "u_shimmerFreq",
-  "u_pulseAmt",
-  "u_pulseFreq",
-  "u_pulseSpeed",
-  "u_bodyCenterUv",
-  "u_aspect",
-];
-
-export const COMPOSITE_FRAG = `#version 300 es
-precision highp float;
-out vec4 o_color;
-
-uniform sampler2D u_bakeTex;
-uniform vec2 u_res;
-uniform float u_time;
-uniform float u_shimmerAmt, u_shimmerFreq;
-uniform float u_pulseAmt, u_pulseFreq, u_pulseSpeed;
-uniform vec2 u_bodyCenterUv;
-uniform float u_aspect;
-
-float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
-float vnoise(vec2 p){
-  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
-  float a = hash(i), b = hash(i+vec2(1,0)), c = hash(i+vec2(0,1)), d = hash(i+vec2(1,1));
-  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
-}
-
-void main() {
-  vec2 uv = gl_FragCoord.xy / u_res;
-  vec4 tex = texture(u_bakeTex, uv);
-
-  // Radial pulse: energy breathing outward from the body's dominant hub —
-  // brightness-only, so the traced stroke positions underneath never move.
-  vec2 d = (uv - u_bodyCenterUv) * vec2(u_aspect, 1.0);
-  float rad = length(d);
-  float wave = 0.5 + 0.5 * sin(rad * u_pulseFreq - u_time * u_pulseSpeed);
-  float pulse = 1.0 + u_pulseAmt * (wave * 2.0 - 1.0);
-
-  // Low-frequency noise (not per-frame random) so the shimmer reads as a
-  // slow living flicker rather than a strobe.
-  float n = vnoise(uv * 7.0 + u_time * u_shimmerFreq);
-  float shimmer = 1.0 + u_shimmerAmt * (n * 2.0 - 1.0);
-
-  float m = max(pulse * shimmer, 0.0);
-  o_color = vec4(tex.rgb * m, clamp(tex.a * m, 0.0, 1.0));
-}
-`;
-
-/** GLSL ES 1.00 mirror of COMPOSITE_FRAG — texture2D/gl_FragColor only. */
-export const COMPOSITE_FRAG_GL1 = `
-precision highp float;
-
-uniform sampler2D u_bakeTex;
-uniform vec2 u_res;
-uniform float u_time;
-uniform float u_shimmerAmt, u_shimmerFreq;
-uniform float u_pulseAmt, u_pulseFreq, u_pulseSpeed;
-uniform vec2 u_bodyCenterUv;
-uniform float u_aspect;
-
-float hash(vec2 p){ p = fract(p*vec2(123.34, 456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }
-float vnoise(vec2 p){
-  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
-  float a = hash(i), b = hash(i+vec2(1,0)), c = hash(i+vec2(0,1)), d = hash(i+vec2(1,1));
-  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
-}
-
-void main() {
-  vec2 uv = gl_FragCoord.xy / u_res;
-  vec4 tex = texture2D(u_bakeTex, uv);
-
-  vec2 d = (uv - u_bodyCenterUv) * vec2(u_aspect, 1.0);
-  float rad = length(d);
-  float wave = 0.5 + 0.5 * sin(rad * u_pulseFreq - u_time * u_pulseSpeed);
-  float pulse = 1.0 + u_pulseAmt * (wave * 2.0 - 1.0);
-
-  float n = vnoise(uv * 7.0 + u_time * u_shimmerFreq);
-  float shimmer = 1.0 + u_shimmerAmt * (n * 2.0 - 1.0);
-
-  float m = max(pulse * shimmer, 0.0);
-  gl_FragColor = vec4(tex.rgb * m, clamp(tex.a * m, 0.0, 1.0));
-}
-`;
-
 export const UNIFORM_NAMES = [
   "u_res",
   "u_bodyOffset",
   "u_radius",
-  "u_numPaths",
+  "u_time",
+  "u_swayAmt",
   "u_pointTex",
-  "u_countTex",
+  "u_gridTex",
+  "u_segTex",
+  "u_gridOrigin",
+  "u_cellSize",
+  "u_gridDim",
+  "u_segTexDim",
   "u_coreSigmaMul",
   "u_glowSigmaMul",
   "u_outerSigmaMul",

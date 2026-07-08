@@ -58,19 +58,20 @@
   display: block;
 }
 
-/* Matches public/analyse/reference.png's ACTUAL body gradient (sampled
- * directly from the image: darkest-20%-per-band background colour top to
- * bottom was #7ac9f3 -> #6fc2f4 -> #6baaf5 -> #648ef3) — this stays a pale
- * cyan-to-blue gradient throughout, unlike the /analyse "blue" theme body
- * (analyse-betspot__body--blue) which drifts into purple/indigo by the
- * bottom (#5566d8, #6a56cf) — that mismatch was part of the reported
- * colour difference from the reference. */
+/* BLUE body, matching reference.png (cyan-ish top drifting to blue/indigo at
+ * the bottom). The energy canvas above screen-blends onto this (see __energy
+ * mix-blend-mode): the bright white-cyan veins add toward white and pop against
+ * the blue field, while the gaps read as the reference's cyan-blue plasma — the
+ * violet at the perimeter comes from the shader's radial edge tint (u_edgeMix)
+ * plus the magenta outer ring. Kept a MEDIUM brightness (deeper than the old
+ * near-white #8ad2f5 fill, which over screen-blend washed the veins into a
+ * milky haze) so the thin veins stay clearly legible on top. */
 .extract-path-betspot__body {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(120% 90% at 50% 15%, #d0f0ff 0%, rgba(184, 232, 255, 0) 60%),
-    linear-gradient(180deg, #8ad2f5 0%, #7ac9f3 35%, #71b8f5 65%, #6aa0f4 100%);
+    radial-gradient(120% 95% at 50% 24%, #7ec6f0 0%, rgba(110, 180, 235, 0) 58%),
+    linear-gradient(180deg, #3f8dd6 0%, #3773c8 38%, #345fbe 68%, #3c48a4 100%);
   /* Soft magenta bloom behind the crisp WebGL outer-border ring (see
    * paintOuterBorder in lichtenbergRenderer.js) — same values as /analyse's
    * peak betspot glow (AnalysePage.css), which was tuned against this same
